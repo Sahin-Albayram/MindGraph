@@ -24,6 +24,7 @@ fileAssociations:
 
 mac:
   category: public.app-category.productivity
+  icon: build/icon.icns
   target:
     - target: dmg
       arch: [arm64, x64]
@@ -32,6 +33,7 @@ mac:
   identity: null
 
 win:
+  icon: build/icon.ico
   target:
     - target: nsis
       arch: [x64]

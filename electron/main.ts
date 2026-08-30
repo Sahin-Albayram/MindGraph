@@ -3,7 +3,8 @@
  * all filesystem access. The renderer never touches the disk itself.
  */
 
-import { app, BrowserWindow, Menu, shell, type MenuItemConstructorOptions } from "electron";
+import { app, BrowserWindow, Menu, nativeImage, shell, type MenuItemConstructorOptions } from "electron";
+import { existsSync } from "node:fs";
 import path from "node:path";
 
 const isMac = process.platform === "darwin";
@@ -14,8 +15,22 @@ const devServerUrl = process.env["VITE_DEV_SERVER_URL"];
 
 let mainWindow: BrowserWindow | null = null;
 
+/**
+ * Packaged builds take their icon from the bundle, so this only matters in
+ * development, where Electron would otherwise show its own default icon.
+ */
+function devIconPath(): string | null {
+  if (!isDev) return null;
+  const candidate = path.join(process.cwd(), "build", "icon.png");
+  return existsSync(candidate) ? candidate : null;
+}
+
 function createWindow(): BrowserWindow {
+  const devIcon = devIconPath();
   const window = new BrowserWindow({
+    // Windows and Linux read the window/taskbar icon from here; macOS uses the
+    // dock icon set below instead.
+    ...(devIcon ? { icon: devIcon } : {}),
     width: 1280,
     height: 840,
     minWidth: 640,
@@ -107,6 +122,11 @@ if (!app.requestSingleInstanceLock()) {
   });
 
   void app.whenReady().then(() => {
+    const devIcon = devIconPath();
+    if (devIcon && isMac && app.dock) {
+      app.dock.setIcon(nativeImage.createFromPath(devIcon));
+    }
+
     buildMenu();
     mainWindow = createWindow();
 

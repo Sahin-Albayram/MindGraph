@@ -119,9 +119,12 @@ Two known gaps, both deliberate for now:
   Workaround for a trusted recipient: right-click -> Open, or
   `xattr -dr com.apple.quarantine /Applications/MindGraph.app`. The real fix is
   an Apple Developer ID plus notarization, which is a paid decision not yet made.
-- **No app icon.** The default Electron icon is used. Add `build/icon.icns`
-  (macOS, 512px+) and `build/icon.ico` (Windows) — `buildResources` already
-  points at `build/`.
+- **App icon is in place.** `build/` holds `icon.svg` (the master artwork),
+  `icon.png` (1024px), `icon.icns` (macOS, all ten sizes) and `icon.ico`
+  (Windows, seven sizes). Regenerate the `.icns` from the 1024px PNG with
+  `sips` into an `.iconset`, then `iconutil -c icns`. Packaged builds take the
+  icon from the bundle; `electron/main.ts` sets it explicitly in development
+  only, where Electron would otherwise show its own default.
 
 ## Format versioning
 
