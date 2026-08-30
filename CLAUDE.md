@@ -92,6 +92,25 @@ the Step 1 scaffold lands, and after any change to the main process, packaging
 config or filesystem code — not at the end. A toolchain problem found at Step 1
 is a five-minute fix; found at Step 8 it blocks the release.
 
+## Packaging
+
+`npm run package:mac` emits both DMGs (arm64 + x64) into `release/`, which is
+gitignored. Verified working: the packaged app loads from `app.asar` and the
+preload bridge connects.
+
+Two known gaps, both deliberate for now:
+
+- **Unsigned.** `electron-builder.yml` sets `mac.identity: null`, so the build
+  is only ad-hoc/linker-signed. It runs fine on the machine that built it, but
+  a *downloaded* copy is quarantined and Gatekeeper refuses it
+  ("code has no resources but signature indicates they must be present").
+  Workaround for a trusted recipient: right-click -> Open, or
+  `xattr -dr com.apple.quarantine /Applications/MindGraph.app`. The real fix is
+  an Apple Developer ID plus notarization, which is a paid decision not yet made.
+- **No app icon.** The default Electron icon is used. Add `build/icon.icns`
+  (macOS, 512px+) and `build/icon.ico` (Windows) — `buildResources` already
+  points at `build/`.
+
 ## Format versioning
 
 `FORMAT_VERSION` lives in `src/types/graph.ts`. To ship a breaking schema
@@ -104,8 +123,8 @@ Tracked in spec section 9.
 
 - **Step 0** — data model, file format, validation, round-trip tests. *Done.*
 - **Step 1** — Electron + Vite + React scaffold; window launches via `npm run dev`. *Done.*
-- **Step 1.5** — throwaway `npm run package` smoke test on macOS. *Next.*
-- **Step 2** — Zustand store: root graph + `GraphPath`, and the undo/redo mechanism.
+- **Step 1.5** — packaging smoke test; both macOS DMGs build and the packaged app runs. *Done.*
+- **Step 2** — Zustand store: root graph + `GraphPath`, and the undo/redo mechanism. *Next.*
 - **Step 3** — React Flow canvas. First interactive build.
 - **Step 4** — node detail panel. **Step 5** — edges.
 - **Step 6** — save/open. First build whose work survives quitting.

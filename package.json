@@ -3,6 +3,7 @@
   "version": "0.0.1",
   "private": true,
   "description": "Local, cross-platform desktop app for visual brainstorming with directed graphs and nestable sub-graphs.",
+  "author": "Sahin Albayram",
   "main": "dist-electron/main.js",
   "engines": {
     "node": ">=20.19"
