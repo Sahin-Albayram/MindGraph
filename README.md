@@ -9,7 +9,8 @@ readable, diffable and repairable by hand.
 ## Status
 
 Early development. The data model, file format and validation layer are in
-place and tested; the Electron/React application shell is next.
+place and tested, and the Electron/React shell launches. The canvas is next —
+see the build order in `CLAUDE.md`.
 
 ## Requirements
 
@@ -19,8 +20,11 @@ place and tested; the Electron/React application shell is next.
 
 ```bash
 npm install
-npm test
+npm run dev
 ```
+
+The first `npm install` downloads the Electron binary (~100 MB), so it takes a
+while. `npm test` runs the unit suite without launching the app.
 
 ## Documentation
 

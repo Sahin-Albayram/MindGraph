@@ -1,0 +1,42 @@
+# Both platform targets are configured together from the start, even though
+# only the macOS half can be built on the macOS machine. The Windows PC then
+# only ever needs `npm run package`.
+appId: com.mindgraph.app
+productName: MindGraph
+copyright: Copyright © 2026
+
+directories:
+  output: release
+  buildResources: build
+
+files:
+  - dist/**
+  - dist-electron/**
+  - package.json
+
+# Registers .mindgraph with the OS: an Info.plist entry on macOS, a registry
+# entry on Windows. One block, both platforms.
+fileAssociations:
+  - ext: mindgraph
+    name: MindGraph Document
+    description: MindGraph diagram
+    role: Editor
+
+mac:
+  category: public.app-category.productivity
+  target:
+    - target: dmg
+      arch: [arm64, x64]
+  # Unsigned builds are fine for local use; distribution needs an Apple
+  # Developer account. Left off deliberately until that decision is made.
+  identity: null
+
+win:
+  target:
+    - target: nsis
+      arch: [x64]
+
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true

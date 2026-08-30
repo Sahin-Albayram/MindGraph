@@ -7,6 +7,9 @@ This file holds only fast-changing operational facts.
 ## Commands
 
 ```bash
+npm run dev       # Vite + Electron, hot reload; this is how you run the app
+npm run build     # typecheck, then bundle renderer + main + preload
+npm run package   # build, then produce installers for the current platform
 npm test          # vitest run
 npm run test:watch
 npm run typecheck # tsc --noEmit
@@ -34,8 +37,13 @@ npm run typecheck # tsc --noEmit
 - TypeScript runs with `strict`, `noUncheckedIndexedAccess` and
   `exactOptionalPropertyTypes`. Omit optional fields rather than assigning
   `undefined` to them.
-- Imports use explicit `.js` extensions so the same modules work in the Electron
-  main process under Node ESM.
+- Imports use explicit `.js` extensions, matching `moduleResolution: "bundler"`.
+- `package.json` deliberately has **no `"type"` field**. vite-plugin-electron
+  reads it to choose an output format, and CommonJS output is what lets the
+  preload script run with `sandbox: true` — an ESM preload would force
+  `sandbox: false`. This is also why the Vite configs are `.mts`.
+- Emitted main/preload land in `dist-electron/`, the renderer bundle in `dist/`.
+  Both are gitignored; `npm run dev` rebuilds them on change.
 
 ## Architecture rules
 
@@ -92,5 +100,13 @@ add a test that opens a fixture written in the old version.
 
 ## Build order
 
-Tracked in spec section 9. Done so far: **Step 0 — data model, file format,
-validation, round-trip tests.** Next: Step 1, Electron + Vite + React scaffold.
+Tracked in spec section 9.
+
+- **Step 0** — data model, file format, validation, round-trip tests. *Done.*
+- **Step 1** — Electron + Vite + React scaffold; window launches via `npm run dev`. *Done.*
+- **Step 1.5** — throwaway `npm run package` smoke test on macOS. *Next.*
+- **Step 2** — Zustand store: root graph + `GraphPath`, and the undo/redo mechanism.
+- **Step 3** — React Flow canvas. First interactive build.
+- **Step 4** — node detail panel. **Step 5** — edges.
+- **Step 6** — save/open. First build whose work survives quitting.
+- **Step 7** — compound-node drill-down. **Step 8** — polish, undo/redo UI, installers.
