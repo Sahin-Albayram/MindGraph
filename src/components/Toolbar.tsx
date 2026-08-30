@@ -14,7 +14,7 @@ import { createSampleGraph } from "../utils/sampleGraph.js";
 import "./toolbar.css";
 
 export function Toolbar() {
-  const { screenToFlowPosition, fitView } = useReactFlow();
+  const { screenToFlowPosition } = useReactFlow();
 
   const graph = useGraphStore(selectCurrentGraph);
   const isDirty = useGraphStore(selectIsDirty);
@@ -65,11 +65,6 @@ export function Toolbar() {
           Redo
         </button>
 
-        <span className="toolbar-divider" />
-
-        <button type="button" onClick={() => fitView({ duration: 200, padding: 0.2 })}>
-          Fit
-        </button>
 
         {import.meta.env.DEV && (
           <>

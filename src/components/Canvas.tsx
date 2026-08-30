@@ -70,7 +70,13 @@ function toFlowEdge(edge: Edge): FlowEdge {
   };
 }
 
-export function Canvas() {
+export interface CanvasProps {
+  /** Reports the selected node ids upward. Selection is view state: it lives
+   *  here, in React Flow's own copy, and never reaches the store or the file. */
+  onSelectionChange?: ((nodeIds: readonly string[]) => void) | undefined;
+}
+
+export function Canvas({ onSelectionChange }: CanvasProps) {
   const graph = useGraphStore(selectCurrentGraph);
   const moveNode = useGraphStore((state) => state.moveNode);
   const deleteElements = useGraphStore((state) => state.deleteElements);
@@ -105,6 +111,17 @@ export function Canvas() {
       return graph.edges.map((edge) => ({ ...existing.get(edge.id), ...toFlowEdge(edge) }));
     });
   }, [graph.edges]);
+
+  // Derived as a string so the effect below fires on a genuine selection
+  // change rather than on every new array identity.
+  const selectedKey = nodes
+    .filter((node) => node.selected)
+    .map((node) => node.id)
+    .join("\u0000");
+
+  useEffect(() => {
+    onSelectionChange?.(selectedKey === "" ? [] : selectedKey.split("\u0000"));
+  }, [selectedKey, onSelectionChange]);
 
   const onNodesChange = useCallback(
     (changes: NodeChange<MindGraphFlowNode>[]) => {

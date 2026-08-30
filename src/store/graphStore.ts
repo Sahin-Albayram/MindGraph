@@ -34,6 +34,17 @@ import { repairPath, resolveGraph } from "../utils/graphPath.js";
 /** Undo depth. Entries are cheap (shared structure), so this is generous. */
 export const MAX_HISTORY = 200;
 
+/**
+ * The presentation fields a node's detail panel may edit. `subgraph` is
+ * deliberately excluded — nesting is managed by its own actions, not patched.
+ *
+ * An explicit `undefined` removes the field, so clearing a description leaves
+ * no empty string behind in the saved file.
+ */
+export type NodeDataPatch = {
+  [K in "title" | "description" | "color" | "tags"]?: NodeData[K] | undefined;
+};
+
 export interface GraphState {
   /** The whole document. Never replaced except through the actions below. */
   root: Graph;
@@ -65,7 +76,12 @@ export interface GraphActions {
 
   // Node edits.
   addNode: (node: Node) => void;
-  updateNodeData: (nodeId: string, patch: Partial<NodeData>) => void;
+  /**
+   * `options.coalesce` names the field being edited, so a burst of typing
+   * collapses into one history entry the same way a drag does. The editor must
+   * call `endGesture()` when the burst ends (blur, or an idle pause).
+   */
+  updateNodeData: (nodeId: string, patch: NodeDataPatch, options?: { coalesce?: string }) => void;
   moveNode: (nodeId: string, position: Position, options?: { coalesce?: boolean }) => void;
   removeNode: (nodeId: string) => void;
   convertToCompound: (nodeId: string) => void;
@@ -197,12 +213,27 @@ export const useGraphStore = create<GraphStore>()((set, get) => {
       });
     },
 
-    updateNodeData: (nodeId, patch) => {
-      edit((graph) => {
-        const node = graph.nodes.find((candidate) => candidate.id === nodeId);
-        if (!node) return;
-        Object.assign(node.data, patch);
-      });
+    updateNodeData: (nodeId, patch, options) => {
+      edit(
+        (graph) => {
+          const node = graph.nodes.find((candidate) => candidate.id === nodeId);
+          if (!node) return;
+
+          const data = node.data as unknown as Record<string, unknown>;
+          for (const [key, value] of Object.entries(patch)) {
+            if (value === undefined) {
+              // Only delete a key that is actually there; removing an absent
+              // one would still count as a change under Immer.
+              if (key in data) delete data[key];
+            } else if (data[key] !== value) {
+              data[key] = value;
+            }
+          }
+        },
+        options?.coalesce === undefined
+          ? undefined
+          : { coalesceKey: `data:${nodeId}:${options.coalesce}` },
+      );
     },
 
     moveNode: (nodeId, position, options) => {

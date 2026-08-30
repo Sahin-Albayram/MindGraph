@@ -69,6 +69,10 @@ npm run typecheck # tsc --noEmit
   drag and `endGesture()` on pointer-up, so one undo reverses one gesture rather
   than one animation frame. Forgetting `endGesture()` merges consecutive drags
   of the same node into a single undo entry.
+- **Typing coalesces the same way.** `updateNodeData(id, patch, { coalesce:
+  "title" })` groups a burst of keystrokes into one undo entry; the detail panel
+  closes the burst on blur and after a short idle pause. Passing `undefined` for
+  a field removes it, so a cleared box leaves no empty string in the file.
 - Dirty state is `root !== savedRoot`, a reference comparison. It works because
   history holds the original objects, so undoing back to the saved state
   correctly reports clean. Do not replace it with a boolean flag.
@@ -132,6 +136,13 @@ symptoms that look unrelated to the cause:
 - Edges render only after their endpoint nodes have been measured, so counting
   `.react-flow__edge` immediately after a state change under-reports. Trust the
   store, or wait for a paint.
+- **`useOnSelectionChange` and `useReactFlow().fitView` do not work from
+  components that are siblings of `<ReactFlow>`**, even inside
+  `ReactFlowProvider`. `screenToFlowPosition` from the same instance does. So
+  selection is reported upward from `Canvas`, which owns it, and "fit to view"
+  is left to React Flow's own `<Controls>` rather than duplicated in the
+  toolbar. Do not reintroduce a toolbar Fit button without verifying it moves
+  the viewport — it fails silently.
 
 ## Packaging
 
@@ -170,7 +181,8 @@ Tracked in spec section 9.
 - **Step 1.5** — packaging smoke test; both macOS DMGs build and the packaged app runs. *Done.*
 - **Step 2** — Zustand store: root graph + `GraphPath`, undo/redo, navigation. *Done.*
 - **Step 3** — React Flow canvas: add/drag/delete nodes, pan, zoom, undo/redo. *Done.*
-- **Step 4** — node detail panel. *Next.* **Step 5** — edges (handles are
-  rendered but `isConnectable={false}` until then).
+- **Step 4** — node detail panel: title + markdown description. *Done.*
+- **Step 5** — edges. *Next.* Handles are rendered but `isConnectable={false}`
+  until then.
 - **Step 6** — save/open. First build whose work survives quitting.
 - **Step 7** — compound-node drill-down. **Step 8** — polish, undo/redo UI, installers.

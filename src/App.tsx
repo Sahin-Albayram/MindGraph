@@ -1,7 +1,8 @@
 import { ReactFlowProvider } from "@xyflow/react";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 
 import { Canvas } from "./components/Canvas.js";
+import { DetailPanel } from "./components/DetailPanel.js";
 import { Toolbar } from "./components/Toolbar.js";
 import { useGraphStore } from "./store/graphStore.js";
 
@@ -34,15 +35,31 @@ function useUndoShortcuts(): void {
   }, [undo, redo]);
 }
 
-export function App() {
+/**
+ * Everything inside the React Flow provider. Selection is reported up from the
+ * canvas, which already owns it — it is view state and must never reach the
+ * document store or the saved file.
+ */
+function Workspace() {
   useUndoShortcuts();
 
+  const [selectedIds, setSelectedIds] = useState<readonly string[]>([]);
+
+  return (
+    <div className="app">
+      <Toolbar />
+      <div className="workspace">
+        <Canvas onSelectionChange={setSelectedIds} />
+        <DetailPanel selectedIds={selectedIds} />
+      </div>
+    </div>
+  );
+}
+
+export function App() {
   return (
     <ReactFlowProvider>
-      <div className="app">
-        <Toolbar />
-        <Canvas />
-      </div>
+      <Workspace />
     </ReactFlowProvider>
   );
 }

@@ -183,6 +183,81 @@ describe("editing the graph on screen", () => {
   });
 });
 
+describe("editing node data from the detail panel", () => {
+  it("collapses a burst of typing into one history entry", () => {
+    const id = addIdea("");
+    const historyBefore = state().past.length;
+
+    for (const text of ["P", "Pr", "Pri", "Pric", "Prici", "Pricing"]) {
+      state().updateNodeData(id, { title: text }, { coalesce: "title" });
+    }
+    state().endGesture();
+
+    expect(state().past.length).toBe(historyBefore + 1);
+    expect(selectCurrentGraph(state()).nodes[0]!.data.title).toBe("Pricing");
+
+    state().undo();
+    expect(selectCurrentGraph(state()).nodes[0]!.data.title).toBe("");
+  });
+
+  it("keeps separate bursts separately undoable", () => {
+    const id = addIdea("A");
+
+    state().updateNodeData(id, { title: "First" }, { coalesce: "title" });
+    state().endGesture();
+    state().updateNodeData(id, { title: "Second" }, { coalesce: "title" });
+    state().endGesture();
+
+    state().undo();
+    expect(selectCurrentGraph(state()).nodes[0]!.data.title).toBe("First");
+  });
+
+  it("does not merge edits to different fields", () => {
+    const id = addIdea("Title");
+    const historyBefore = state().past.length;
+
+    state().updateNodeData(id, { title: "Changed" }, { coalesce: "title" });
+    state().updateNodeData(id, { description: "Notes" }, { coalesce: "description" });
+
+    expect(state().past.length).toBe(historyBefore + 2);
+  });
+
+  it("removes a field rather than storing an empty value", () => {
+    const id = addIdea("Node");
+    state().updateNodeData(id, { description: "Some notes" });
+    expect(selectCurrentGraph(state()).nodes[0]!.data.description).toBe("Some notes");
+
+    state().updateNodeData(id, { description: undefined });
+    expect("description" in selectCurrentGraph(state()).nodes[0]!.data).toBe(false);
+
+    // The cleared field must not reappear as null in the saved file.
+    expect(serialize(state().root)).not.toContain("description");
+  });
+
+  it("ignores a patch that sets the value already present", () => {
+    const id = addIdea("Same");
+    const rootBefore = state().root;
+    state().updateNodeData(id, { title: "Same" });
+    expect(state().root).toBe(rootBefore);
+  });
+
+  it("ignores clearing a field that is already absent", () => {
+    const id = addIdea("No description");
+    const rootBefore = state().root;
+    state().updateNodeData(id, { description: undefined });
+    expect(state().root).toBe(rootBefore);
+  });
+
+  it("keeps the document valid after panel edits", () => {
+    const id = addIdea("Node");
+    state().updateNodeData(id, { title: "# Heading", description: "**bold** text" });
+
+    const parsed = deserialize(serialize(state().root));
+    if (!parsed.ok) throw new Error(parsed.errors.join("\n"));
+    expect(parsed.file.graph.nodes[0]!.data.description).toBe("**bold** text");
+  });
+});
+
 describe("nested sub-graph navigation", () => {
   /** Root with one compound node, returning that node's id. */
   function withCompound(): string {
