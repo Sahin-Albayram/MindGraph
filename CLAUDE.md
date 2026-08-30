@@ -24,6 +24,13 @@ npm run typecheck # tsc --noEmit
   version parity across the two machines matters — mismatches show up as
   lockfile churn and native-binary errors, not as clear messages.
 
+## Development aids
+
+- `window.__graphStore` exposes the store in the devtools console in dev builds
+  (`__graphStore.getState()` shows the undo history). Stripped from production.
+- The toolbar's "Load sample" button loads a populated document from
+  `src/utils/sampleGraph.ts`. Also dev-only, behind `import.meta.env.DEV`.
+
 ## Conventions
 
 - **`src/types/graph.ts` is the single source of truth for the data model.**
@@ -104,6 +111,28 @@ the Step 1 scaffold lands, and after any change to the main process, packaging
 config or filesystem code — not at the end. A toolchain problem found at Step 1
 is a five-minute fix; found at Step 8 it blocks the release.
 
+## React Flow integration
+
+Hard-won rules for `src/components/Canvas.tsx`. Breaking any of them produces
+symptoms that look unrelated to the cause:
+
+- **Never rebuild the node objects handed to React Flow from the store on every
+  render.** React Flow annotates those objects with measurements; fresh objects
+  discard them and it then refuses to drag "uninitialised" nodes. React Flow
+  keeps its own copy via `applyNodeChanges`; an effect re-syncs that copy from
+  the store, updating existing entries in place.
+- **Selection is view state.** It lives only in React Flow's copy and must never
+  reach the store or the file.
+- **Deletion goes through `onDelete`, not `remove` changes.** React Flow reports
+  a deleted node and its edges through two separate change callbacks; handling
+  each would cost two undo presses for one Delete. `onDelete` fires once, and
+  the store's `deleteElements` applies both in a single transaction.
+- **`nodeTypes` must be module-scope.** A new object identity each render
+  re-mounts every node.
+- Edges render only after their endpoint nodes have been measured, so counting
+  `.react-flow__edge` immediately after a state change under-reports. Trust the
+  store, or wait for a paint.
+
 ## Packaging
 
 `npm run package:mac` emits both DMGs (arm64 + x64) into `release/`, which is
@@ -140,7 +169,8 @@ Tracked in spec section 9.
 - **Step 1** — Electron + Vite + React scaffold; window launches via `npm run dev`. *Done.*
 - **Step 1.5** — packaging smoke test; both macOS DMGs build and the packaged app runs. *Done.*
 - **Step 2** — Zustand store: root graph + `GraphPath`, undo/redo, navigation. *Done.*
-- **Step 3** — React Flow canvas. First interactive build. *Next.*
-- **Step 4** — node detail panel. **Step 5** — edges.
+- **Step 3** — React Flow canvas: add/drag/delete nodes, pan, zoom, undo/redo. *Done.*
+- **Step 4** — node detail panel. *Next.* **Step 5** — edges (handles are
+  rendered but `isConnectable={false}` until then).
 - **Step 6** — save/open. First build whose work survives quitting.
 - **Step 7** — compound-node drill-down. **Step 8** — polish, undo/redo UI, installers.

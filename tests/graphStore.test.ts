@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { Graph } from "../src/types/graph.js";
 import { useGraphStore } from "../src/store/graphStore.js";
@@ -122,6 +122,49 @@ describe("editing the graph on screen", () => {
     // The result must still be a legal document.
     const parsed = deserialize(serialize(state().root));
     expect(parsed.ok).toBe(true);
+  });
+
+  it("deletes a node and its edges as one undoable transaction", () => {
+    // React Flow reports the node and its edges through separate callbacks;
+    // the canvas funnels both into deleteElements so one Delete press is one
+    // undo press.
+    const a = addIdea("A");
+    const b = addIdea("B");
+    const c = addIdea("C");
+    state().connect(a, b);
+    state().connect(b, c);
+
+    const edgeIds = selectCurrentGraph(state()).edges.map((edge) => edge.id);
+    const historyBefore = state().past.length;
+
+    state().deleteElements({ nodeIds: [b], edgeIds });
+
+    expect(selectCurrentGraph(state()).nodes.map((node) => node.data.title)).toEqual(["A", "C"]);
+    expect(selectCurrentGraph(state()).edges).toEqual([]);
+    expect(state().past.length).toBe(historyBefore + 1);
+
+    state().undo();
+    expect(selectCurrentGraph(state()).nodes).toHaveLength(3);
+    expect(selectCurrentGraph(state()).edges).toHaveLength(2);
+  });
+
+  it("drops edges hanging off a deleted node even when not listed", () => {
+    const a = addIdea("A");
+    const b = addIdea("B");
+    state().connect(a, b);
+
+    state().deleteElements({ nodeIds: [b] });
+    expect(selectCurrentGraph(state()).edges).toEqual([]);
+
+    const parsed = deserialize(serialize(state().root));
+    expect(parsed.ok).toBe(true);
+  });
+
+  it("ignores an empty delete", () => {
+    addIdea("A");
+    const rootBefore = state().root;
+    state().deleteElements({});
+    expect(state().root).toBe(rootBefore);
   });
 
   it("stamps updatedAt on the edited graph and the root", () => {
@@ -310,11 +353,79 @@ describe("undo and redo", () => {
     expect(selectCurrentGraph(state()).nodes[0]!.position).toEqual({ x: 10, y: 0 });
   });
 
+  it("ignores a move to the position the node already has", () => {
+    const id = addIdea("Node", { x: 40, y: 180 });
+    const rootBefore = state().root;
+    const historyBefore = state().past.length;
+
+    state().moveNode(id, { x: 40, y: 180 });
+    expect(state().root).toBe(rootBefore);
+    expect(state().past.length).toBe(historyBefore);
+  });
+
+  it("costs exactly one undo for a full React Flow drag sequence", () => {
+    // React Flow emits a run of position changes with dragging: true, then a
+    // final one at the *same* coordinates with dragging: false. Replaying that
+    // shape here keeps the store honest about what a real drag costs.
+    const id = addIdea("Draggable", { x: 0, y: 0 });
+    const historyBefore = state().past.length;
+
+    for (const x of [12, 40, 96, 160]) {
+      state().moveNode(id, { x, y: 334 }, { coalesce: true });
+    }
+    state().moveNode(id, { x: 160, y: 334 }, { coalesce: false });
+    state().endGesture();
+
+    expect(state().past.length).toBe(historyBefore + 1);
+
+    state().undo();
+    expect(selectCurrentGraph(state()).nodes[0]!.position).toEqual({ x: 0, y: 0 });
+  });
+
   it("records a move made without coalescing as its own entry", () => {
     const id = addIdea("Node");
     const before = state().past.length;
     state().moveNode(id, { x: 5, y: 5 });
     expect(state().past.length).toBe(before + 1);
+  });
+});
+
+describe("no-op edits", () => {
+  // These use fake timers deliberately. The store stamps `updatedAt` on every
+  // real edit, and a stamp is itself a change — so if no-op detection ran after
+  // stamping, a do-nothing edit would still be recorded. Within a single
+  // millisecond the two timestamps are identical and the bug hides, which is
+  // exactly how it escaped a first round of tests.
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("does not record or stamp an edit that changes nothing, even later in time", () => {
+    vi.useFakeTimers();
+    const id = addIdea("Node", { x: 40, y: 180 });
+    const rootBefore = state().root;
+    const historyBefore = state().past.length;
+
+    vi.setSystemTime(new Date(Date.now() + 5_000));
+
+    state().moveNode(id, { x: 40, y: 180 });
+    state().updateNodeData("does-not-exist", { title: "nothing" });
+    state().removeNode("does-not-exist");
+    state().connect(id, "does-not-exist");
+
+    expect(state().root).toBe(rootBefore);
+    expect(state().past.length).toBe(historyBefore);
+  });
+
+  it("still stamps updatedAt when an edit does change something", () => {
+    vi.useFakeTimers();
+    addIdea("First");
+    const before = state().root.updatedAt;
+
+    vi.setSystemTime(new Date(Date.now() + 5_000));
+    addIdea("Second");
+
+    expect(state().root.updatedAt > before).toBe(true);
   });
 });
 

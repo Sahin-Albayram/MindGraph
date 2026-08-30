@@ -75,6 +75,12 @@ export interface GraphActions {
   addEdge: (edge: Edge) => void;
   updateEdge: (edgeId: string, patch: Partial<Omit<Edge, "id">>) => void;
   removeEdge: (edgeId: string) => void;
+  /**
+   * Removes nodes and edges as one transaction, so a single delete gesture
+   * costs a single undo. React Flow reports node and edge deletions through
+   * separate callbacks; routing both here keeps them in one history entry.
+   */
+  deleteElements: (elements: { nodeIds?: readonly string[]; edgeIds?: readonly string[] }) => void;
 
   /** Ends a coalescing gesture, e.g. on pointer-up. */
   endGesture: () => void;
@@ -111,18 +117,25 @@ export const useGraphStore = create<GraphStore>()((set, get) => {
    */
   function edit(recipe: (graph: Graph) => void, options?: { coalesceKey?: string }): void {
     set((state) => {
-      const next = produce(state.root, (draft) => {
+      const edited = produce(state.root, (draft) => {
         const target = resolveGraph(draft, state.path);
         // The view can only point at a missing graph if state was corrupted;
         // dropping the edit is safer than writing to the wrong graph.
         if (!target) return;
         recipe(target);
-        const stamp = new Date().toISOString();
-        target.updatedAt = stamp;
-        draft.updatedAt = stamp;
       });
 
-      if (next === state.root) return {};
+      // Nothing changed: no history entry, and — importantly — no timestamp
+      // either. Stamping before this check would make every no-op look like an
+      // edit, because the new timestamp is itself a change.
+      if (edited === state.root) return {};
+
+      const stamp = new Date().toISOString();
+      const next = produce(edited, (draft) => {
+        const target = resolveGraph(draft, state.path);
+        if (target) target.updatedAt = stamp;
+        draft.updatedAt = stamp;
+      });
 
       const key = options?.coalesceKey;
       const continuing = key !== undefined && key === state.coalesceKey;
@@ -197,6 +210,11 @@ export const useGraphStore = create<GraphStore>()((set, get) => {
         (graph) => {
           const node = graph.nodes.find((candidate) => candidate.id === nodeId);
           if (!node) return;
+          // Skip a write that changes nothing. React Flow ends every drag with
+          // a second position change at the same coordinates (dragging: false);
+          // assigning an equal-but-new object would count as an edit under
+          // Immer and cost the user a second, empty undo press.
+          if (node.position.x === position.x && node.position.y === position.y) return;
           node.position = { ...position };
         },
         // Every frame of one drag shares a key, so the whole drag is one undo.
@@ -260,6 +278,24 @@ export const useGraphStore = create<GraphStore>()((set, get) => {
         const index = graph.edges.findIndex((candidate) => candidate.id === edgeId);
         if (index === -1) return;
         graph.edges.splice(index, 1);
+      });
+    },
+
+    deleteElements: ({ nodeIds = [], edgeIds = [] }) => {
+      if (nodeIds.length === 0 && edgeIds.length === 0) return;
+      const doomedNodes = new Set(nodeIds);
+      const doomedEdges = new Set(edgeIds);
+
+      edit((graph) => {
+        graph.nodes = graph.nodes.filter((node) => !doomedNodes.has(node.id));
+        graph.edges = graph.edges.filter(
+          (edge) =>
+            !doomedEdges.has(edge.id) &&
+            // Edges left hanging off a deleted node go with it; the file
+            // validator rejects a dangling reference.
+            !doomedNodes.has(edge.source) &&
+            !doomedNodes.has(edge.target),
+        );
       });
     },
 

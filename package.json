@@ -19,6 +19,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@xyflow/react": "^12.11.5",
     "immer": "^11.1.18",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",

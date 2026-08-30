@@ -1,55 +1,48 @@
+import { ReactFlowProvider } from "@xyflow/react";
+import { useEffect } from "react";
+
+import { Canvas } from "./components/Canvas.js";
+import { Toolbar } from "./components/Toolbar.js";
+import { useGraphStore } from "./store/graphStore.js";
+
 import "./App.css";
 
 /**
- * Step 1 scaffold screen. Its job is to prove the whole chain works — Electron
- * launches, Vite serves, React renders, and the preload bridge reached the
- * renderer with `contextIsolation` on. The canvas replaces it in Step 3.
+ * Undo/redo keyboard shortcuts. `CmdOrCtrl` is spelled out by hand here because
+ * this is the renderer; Step 8 moves these onto the application menu, where
+ * Electron's accelerator strings handle the platform difference.
  */
-export function App() {
-  // Guarded rather than assumed: if the preload script fails to load, the
-  // window would otherwise render a blank screen with no explanation.
-  const bridge = typeof window !== "undefined" ? window.mindgraph : undefined;
+function useUndoShortcuts(): void {
+  const undo = useGraphStore((state) => state.undo);
+  const redo = useGraphStore((state) => state.redo);
 
-  const platformName =
-    bridge?.platform === "darwin"
-      ? "macOS"
-      : bridge?.platform === "win32"
-        ? "Windows"
-        : (bridge?.platform ?? "unknown");
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (!(event.metaKey || event.ctrlKey) || event.key.toLowerCase() !== "z") return;
+
+      // Let a focused text field keep its own undo stack.
+      const target = event.target as HTMLElement | null;
+      if (target?.isContentEditable || /^(input|textarea)$/i.test(target?.tagName ?? "")) return;
+
+      event.preventDefault();
+      if (event.shiftKey) redo();
+      else undo();
+    };
+
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [undo, redo]);
+}
+
+export function App() {
+  useUndoShortcuts();
 
   return (
-    <main className="shell">
-      <section className="card">
-        <h1>MindGraph</h1>
-        <p className="tagline">
-          Visual brainstorming with directed graphs and nestable sub-graphs.
-        </p>
-
-        {bridge ? (
-          <p className="status ok">Preload bridge connected — running on {platformName}.</p>
-        ) : (
-          <p className="status fail">
-            Preload bridge unavailable. The renderer cannot reach the main
-            process; check the preload path in <code>electron/main.ts</code>.
-          </p>
-        )}
-
-        {bridge && (
-          <dl className="facts">
-            <dt>Electron</dt>
-            <dd>{bridge.versions.electron}</dd>
-            <dt>Chromium</dt>
-            <dd>{bridge.versions.chrome}</dd>
-            <dt>Node</dt>
-            <dd>{bridge.versions.node}</dd>
-          </dl>
-        )}
-
-        <p className="next">
-          Step 1 of the build order is complete. Next: <strong>Step 2</strong> —
-          the Zustand store holding the root graph and the sub-graph path.
-        </p>
-      </section>
-    </main>
+    <ReactFlowProvider>
+      <div className="app">
+        <Toolbar />
+        <Canvas />
+      </div>
+    </ReactFlowProvider>
   );
 }

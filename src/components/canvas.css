@@ -1,0 +1,51 @@
+.canvas {
+  flex: 1 1 auto;
+  min-height: 0;
+  /* React Flow warns and refuses to lay out if its container measures zero, so
+     the box is stated outright rather than left to flex-resolution timing. */
+  position: relative;
+  width: 100%;
+}
+
+/* React Flow ships light-theme defaults; these retint it to the app palette. */
+.react-flow {
+  --xy-background-color: var(--bg);
+  --xy-edge-stroke: var(--edge);
+  --xy-edge-stroke-selected: var(--accent);
+  --xy-connectionline-stroke: var(--accent);
+}
+
+.react-flow__background-pattern {
+  color: var(--grid);
+}
+
+.react-flow__edge-text {
+  fill: var(--text-dim);
+  font-size: 11px;
+}
+
+.react-flow__edge-textbg {
+  fill: var(--bg);
+}
+
+.react-flow__controls {
+  box-shadow: 0 2px 10px rgb(0 0 0 / 0.4);
+}
+
+.react-flow__controls-button {
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+  fill: var(--text);
+}
+
+.react-flow__controls-button:hover {
+  background: var(--surface-raised);
+}
+
+.react-flow__attribution {
+  background: transparent;
+}
+
+.react-flow__attribution a {
+  color: var(--text-faint);
+}

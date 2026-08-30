@@ -11,10 +11,24 @@
 
   --bg: #1a1a1e;
   --surface: #232329;
+  --surface-raised: #2b2b33;
   --border: #34343d;
   --text: #e9e9ee;
   --text-dim: #9a9aa8;
+  --text-faint: #6a6a78;
   --accent: #7c8cff;
+
+  --grid: #32323c;
+  --edge: #55555f;
+
+  --node-bg: #26262d;
+  --node-border: #3b3b46;
+
+  /* Echoes the gold ring in the app icon, where the same shape means
+     "a graph inside a node". */
+  --compound-bg: #2a2720;
+  --compound-border: #7a6533;
+  --compound-text: #d8ab4e;
 
   color-scheme: dark;
 }
