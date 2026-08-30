@@ -53,6 +53,18 @@ npm run typecheck # tsc --noEmit
 - The store holds the **root graph plus a `GraphPath`** (a list of compound-node
   ids) identifying the sub-graph currently on screen — not a detached copy of it.
   Drill-down, undo/redo and save all operate on that one authoritative tree.
+- **Go through the store actions**, never mutate `root` directly. Actions apply
+  an Immer recipe to the graph the path points at, then record history.
+- **What is undoable is a deliberate policy**, enforced in `graphStore.ts`:
+  node and edge edits yes; navigation and viewport changes no. `edit()` records
+  history, `editSilently()` does not — pick the right one when adding an action.
+- **Drags must coalesce.** Call `moveNode(id, pos, { coalesce: true })` during a
+  drag and `endGesture()` on pointer-up, so one undo reverses one gesture rather
+  than one animation frame. Forgetting `endGesture()` merges consecutive drags
+  of the same node into a single undo entry.
+- Dirty state is `root !== savedRoot`, a reference comparison. It works because
+  history holds the original objects, so undoing back to the saved state
+  correctly reports clean. Do not replace it with a boolean flag.
 - Compound-node drill-down replaces the whole canvas with a different graph. It
   is *not* React Flow's "sub-flow" parent/child feature, despite what spec
   section 2 suggests — don't reach for that API.
@@ -124,8 +136,8 @@ Tracked in spec section 9.
 - **Step 0** — data model, file format, validation, round-trip tests. *Done.*
 - **Step 1** — Electron + Vite + React scaffold; window launches via `npm run dev`. *Done.*
 - **Step 1.5** — packaging smoke test; both macOS DMGs build and the packaged app runs. *Done.*
-- **Step 2** — Zustand store: root graph + `GraphPath`, and the undo/redo mechanism. *Next.*
-- **Step 3** — React Flow canvas. First interactive build.
+- **Step 2** — Zustand store: root graph + `GraphPath`, undo/redo, navigation. *Done.*
+- **Step 3** — React Flow canvas. First interactive build. *Next.*
 - **Step 4** — node detail panel. **Step 5** — edges.
 - **Step 6** — save/open. First build whose work survives quitting.
 - **Step 7** — compound-node drill-down. **Step 8** — polish, undo/redo UI, installers.
