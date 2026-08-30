@@ -1,0 +1,20 @@
+{
+  "name": "mindgraph",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Local, cross-platform desktop app for visual brainstorming with directed graphs and nestable sub-graphs.",
+  "type": "module",
+  "engines": {
+    "node": ">=20.19"
+  },
+  "scripts": {
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "typescript": "^5.7.2",
+    "vitest": "^4.1.11"
+  }
+}
