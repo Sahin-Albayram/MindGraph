@@ -72,7 +72,13 @@ connect, kill every instance first:
   ids) identifying the sub-graph currently on screen — not a detached copy of it.
   Drill-down, undo/redo and save all operate on that one authoritative tree.
 - **Go through the store actions**, never mutate `root` directly. Actions apply
-  an Immer recipe to the graph the path points at, then record history.
+  an Immer recipe to one graph, then record history.
+- **Every mutating action takes an optional target path.** Because an expanded
+  group shows several graphs at once, "the current graph" is not enough to say
+  where an edit lands; omitting the path still means the graph on screen.
+- **A node id identifies a node only within its own graph.** Anything spanning
+  graphs — selection, deletion, the canvas — uses an `ElementRef`
+  (`{ path, id }`), encoded for React Flow by `refKey` / `parseRef`.
 - **What is undoable is a deliberate policy**, enforced in `graphStore.ts`:
   node and edge edits yes; navigation and viewport changes no. `edit()` records
   history, `editSilently()` does not — pick the right one when adding an action.
@@ -131,6 +137,30 @@ change is subject to these:
 the Step 1 scaffold lands, and after any change to the main process, packaging
 config or filesystem code — not at the end. A toolchain problem found at Step 1
 is a five-minute fix; found at Step 8 it blocks the release.
+
+## Groups on the canvas
+
+A group can be **expanded in place** (double-click, or the panel) or **focused**
+(the panel's "Focus on it", giving it the whole canvas with breadcrumbs).
+Expansion is view state: it lives in `viewStore.ts`, never reaches the file,
+costs no undo entry, and never marks the document dirty. It is cleared when a
+document is opened, since it is keyed by node id.
+
+`flatten.ts` turns the nested document into React Flow's flat parent/child
+array. It owns two things:
+
+- **Identity** — every element is keyed by its full path from the root.
+- **Geometry** — a child's stored position is relative to its own graph, so the
+  flattener adds `GROUP_PADDING`/`GROUP_HEADER` on the way out and the canvas
+  subtracts them on the way back in. Containers are sized from child positions
+  plus an assumed child footprint, because React Flow measures nodes only after
+  they render.
+
+**Edges may not cross a group boundary.** The file format addresses an edge's
+endpoints by plain id within one graph, so an edge between levels is not
+representable; `isValidConnection` refuses the drop while the user is dragging.
+The meaning is "to relate a group to something outside it, connect the group
+itself". Changing this means a `formatVersion` bump and a validator rewrite.
 
 ## React Flow integration
 
@@ -228,5 +258,6 @@ Tracked in spec section 9.
 - **Step 7** — compound-node drill-down: double-click to enter, breadcrumbs
   back out, convert an idea into a group. *Done.* Phase 1 of the spec is
   complete.
+- **Expanded groups** — containers editable in place, on top of Phase 1. *Done.*
 - **Step 8** — polish, minimap, installers. *Next.* Also move the renderer's
   keyboard shortcuts onto the application menu.

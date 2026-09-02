@@ -49,6 +49,16 @@ export type NodeDataPatch = {
  * The editable properties of an edge. Endpoints are not among them: re-pointing
  * an edge is a structural change, not a property edit.
  */
+/**
+ * An element identified by the graph that owns it. Node ids are unique only
+ * within their own graph, so once several graphs are on screen at once an id
+ * alone no longer identifies anything.
+ */
+export interface ElementRef {
+  path: GraphPath;
+  id: string;
+}
+
 export type EdgePatch = {
   [K in "label" | "style"]?: Edge[K] | undefined;
 };
@@ -80,32 +90,54 @@ export interface GraphActions {
   navigateTo: (depth: number) => void;
 
   // Viewport — never recorded in history.
-  setViewport: (viewport: Viewport) => void;
+  setViewport: (viewport: Viewport, path?: GraphPath) => void;
 
   // Node edits.
-  addNode: (node: Node) => void;
+  addNode: (node: Node, path?: GraphPath) => void;
   /**
    * `options.coalesce` names the field being edited, so a burst of typing
    * collapses into one history entry the same way a drag does. The editor must
    * call `endGesture()` when the burst ends (blur, or an idle pause).
    */
-  updateNodeData: (nodeId: string, patch: NodeDataPatch, options?: { coalesce?: string }) => void;
-  moveNode: (nodeId: string, position: Position, options?: { coalesce?: boolean }) => void;
-  removeNode: (nodeId: string) => void;
-  convertToCompound: (nodeId: string) => void;
+  updateNodeData: (
+    nodeId: string,
+    patch: NodeDataPatch,
+    options?: { coalesce?: string; path?: GraphPath },
+  ) => void;
+  moveNode: (
+    nodeId: string,
+    position: Position,
+    options?: { coalesce?: boolean; path?: GraphPath },
+  ) => void;
+  removeNode: (nodeId: string, path?: GraphPath) => void;
+  convertToCompound: (nodeId: string, path?: GraphPath) => void;
 
   // Edge edits.
-  connect: (source: string, target: string, options?: { label?: string; style?: Edge["style"] }) => void;
-  addEdge: (edge: Edge) => void;
+  connect: (
+    source: string,
+    target: string,
+    options?: { label?: string; style?: Edge["style"]; path?: GraphPath },
+  ) => void;
+  addEdge: (edge: Edge, path?: GraphPath) => void;
   /** `options.coalesce` groups a burst of typing, exactly as for node data. */
-  updateEdge: (edgeId: string, patch: EdgePatch, options?: { coalesce?: string }) => void;
-  removeEdge: (edgeId: string) => void;
+  updateEdge: (
+    edgeId: string,
+    patch: EdgePatch,
+    options?: { coalesce?: string; path?: GraphPath },
+  ) => void;
+  removeEdge: (edgeId: string, path?: GraphPath) => void;
   /**
    * Removes nodes and edges as one transaction, so a single delete gesture
    * costs a single undo. React Flow reports node and edge deletions through
    * separate callbacks; routing both here keeps them in one history entry.
    */
-  deleteElements: (elements: { nodeIds?: readonly string[]; edgeIds?: readonly string[] }) => void;
+  deleteElements: (elements: {
+    nodeIds?: readonly string[];
+    edgeIds?: readonly string[];
+    /** Elements spanning several graphs, as shown by expanded groups. */
+    refs?: { nodes?: readonly ElementRef[]; edges?: readonly ElementRef[] };
+    path?: GraphPath;
+  }) => void;
 
   /** Ends a coalescing gesture, e.g. on pointer-up. */
   endGesture: () => void;
@@ -140,14 +172,13 @@ export const useGraphStore = create<GraphStore>()((set, get) => {
    * history. A recipe that changes nothing leaves history untouched, so no-op
    * interactions never cost the user an undo press.
    */
-  function edit(recipe: (graph: Graph) => void, options?: { coalesceKey?: string }): void {
+  function editRoot(
+    recipe: (root: Graph) => void,
+    options?: { coalesceKey?: string; stampPath?: GraphPath },
+  ): void {
     set((state) => {
       const edited = produce(state.root, (draft) => {
-        const target = resolveGraph(draft, state.path);
-        // The view can only point at a missing graph if state was corrupted;
-        // dropping the edit is safer than writing to the wrong graph.
-        if (!target) return;
-        recipe(target);
+        recipe(draft);
       });
 
       // Nothing changed: no history entry, and — importantly — no timestamp
@@ -157,7 +188,7 @@ export const useGraphStore = create<GraphStore>()((set, get) => {
 
       const stamp = new Date().toISOString();
       const next = produce(edited, (draft) => {
-        const target = resolveGraph(draft, state.path);
+        const target = resolveGraph(draft, options?.stampPath ?? state.path);
         if (target) target.updatedAt = stamp;
         draft.updatedAt = stamp;
       });
@@ -177,6 +208,32 @@ export const useGraphStore = create<GraphStore>()((set, get) => {
   }
 
   /**
+   * Applies `recipe` to one graph — by default the one on screen, or any other
+   * named by `options.path`.
+   *
+   * An explicit path matters now that several graphs can be visible at once:
+   * an expanded group shows its children in place, so "the current graph" is no
+   * longer enough to say where an edit lands.
+   */
+  function edit(
+    recipe: (graph: Graph) => void,
+    options?: { coalesceKey?: string; path?: GraphPath },
+  ): void {
+    const path = options?.path ?? get().path;
+    editRoot(
+      (draft) => {
+        const target = resolveGraph(draft, path);
+        // A missing graph means corrupted state; dropping the edit is safer
+        // than writing to the wrong graph.
+        if (target) recipe(target);
+      },
+      options?.coalesceKey === undefined
+        ? { stampPath: path }
+        : { coalesceKey: options.coalesceKey, stampPath: path },
+    );
+  }
+
+  /**
    * Changes the visible graph or camera without touching history.
    *
    * The camera lives in the document, so moving it does rewrite `root`. It must
@@ -185,10 +242,10 @@ export const useGraphStore = create<GraphStore>()((set, get) => {
    * learns to dismiss is worse than no prompt at all. So when the document was
    * clean, `savedRoot` moves with it and stays clean.
    */
-  function editSilently(recipe: (graph: Graph) => void): void {
+  function editSilently(recipe: (graph: Graph) => void, path?: GraphPath): void {
     set((state) => {
       const next = produce(state.root, (draft) => {
-        const target = resolveGraph(draft, state.path);
+        const target = resolveGraph(draft, path ?? state.path);
         if (target) recipe(target);
       });
       if (next === state.root) return {};
@@ -221,16 +278,19 @@ export const useGraphStore = create<GraphStore>()((set, get) => {
       set({ path: path.slice(0, depth), coalesceKey: null });
     },
 
-    setViewport: (viewport) => {
+    setViewport: (viewport, path) => {
       editSilently((graph) => {
         graph.viewport = { ...viewport };
-      });
+      }, path);
     },
 
-    addNode: (node) => {
-      edit((graph) => {
-        graph.nodes.push(node);
-      });
+    addNode: (node, path) => {
+      edit(
+        (graph) => {
+          graph.nodes.push(node);
+        },
+        path === undefined ? undefined : { path },
+      );
     },
 
     updateNodeData: (nodeId, patch, options) => {
@@ -250,9 +310,12 @@ export const useGraphStore = create<GraphStore>()((set, get) => {
             }
           }
         },
-        options?.coalesce === undefined
-          ? undefined
-          : { coalesceKey: `data:${nodeId}:${options.coalesce}` },
+        {
+          ...(options?.coalesce === undefined
+            ? {}
+            : { coalesceKey: `data:${nodeId}:${options.coalesce}` }),
+          ...(options?.path === undefined ? {} : { path: options.path }),
+        },
       );
     },
 
@@ -268,35 +331,45 @@ export const useGraphStore = create<GraphStore>()((set, get) => {
           if (node.position.x === position.x && node.position.y === position.y) return;
           node.position = { ...position };
         },
-        // Every frame of one drag shares a key, so the whole drag is one undo.
-        options?.coalesce ? { coalesceKey: `move:${nodeId}` } : undefined,
+        {
+          // Every frame of one drag shares a key, so the whole drag is one undo.
+          ...(options?.coalesce ? { coalesceKey: `move:${nodeId}` } : {}),
+          ...(options?.path === undefined ? {} : { path: options.path }),
+        },
       );
     },
 
-    removeNode: (nodeId) => {
-      edit((graph) => {
-        const index = graph.nodes.findIndex((candidate) => candidate.id === nodeId);
-        if (index === -1) return;
-        graph.nodes.splice(index, 1);
-        // Edges to a deleted node would dangle, and the file validator rejects
-        // that, so they go with it.
-        graph.edges = graph.edges.filter(
-          (edge) => edge.source !== nodeId && edge.target !== nodeId,
-        );
-      });
+    removeNode: (nodeId, path) => {
+      edit(
+        (graph) => {
+          const index = graph.nodes.findIndex((candidate) => candidate.id === nodeId);
+          if (index === -1) return;
+          graph.nodes.splice(index, 1);
+          // Edges to a deleted node would dangle, and the file validator
+          // rejects that, so they go with it.
+          graph.edges = graph.edges.filter(
+            (edge) => edge.source !== nodeId && edge.target !== nodeId,
+          );
+        },
+        path === undefined ? undefined : { path },
+      );
     },
 
-    convertToCompound: (nodeId) => {
-      edit((graph) => {
-        const node = graph.nodes.find((candidate) => candidate.id === nodeId);
-        if (!node || node.type === "compound") return;
-        node.type = "compound";
-        node.data.subgraph = createGraph({ name: node.data.title });
-      });
+    convertToCompound: (nodeId, path) => {
+      edit(
+        (graph) => {
+          const node = graph.nodes.find((candidate) => candidate.id === nodeId);
+          if (!node || node.type === "compound") return;
+          node.type = "compound";
+          node.data.subgraph = createGraph({ name: node.data.title });
+        },
+        path === undefined ? undefined : { path },
+      );
     },
 
     connect: (source, target, options) => {
-      edit((graph) => {
+      edit(
+        (graph) => {
         // A node related to itself says nothing, and renders as a stub. Files
         // containing one still load — the reader stays liberal, the editor
         // conservative — but the editor will not create one.
@@ -311,14 +384,20 @@ export const useGraphStore = create<GraphStore>()((set, get) => {
           (edge) => edge.source === source && edge.target === target,
         );
         if (exists) return;
-        graph.edges.push(makeEdge({ source, target, ...options }));
-      });
+          const { path: _ignored, ...edgeOptions } = options ?? {};
+          graph.edges.push(makeEdge({ source, target, ...edgeOptions }));
+        },
+        options?.path === undefined ? undefined : { path: options.path },
+      );
     },
 
-    addEdge: (edge) => {
-      edit((graph) => {
-        graph.edges.push(edge);
-      });
+    addEdge: (edge, path) => {
+      edit(
+        (graph) => {
+          graph.edges.push(edge);
+        },
+        path === undefined ? undefined : { path },
+      );
     },
 
     updateEdge: (edgeId, patch, options) => {
@@ -336,36 +415,73 @@ export const useGraphStore = create<GraphStore>()((set, get) => {
             }
           }
         },
-        options?.coalesce === undefined
-          ? undefined
-          : { coalesceKey: `edge:${edgeId}:${options.coalesce}` },
+        {
+          ...(options?.coalesce === undefined
+            ? {}
+            : { coalesceKey: `edge:${edgeId}:${options.coalesce}` }),
+          ...(options?.path === undefined ? {} : { path: options.path }),
+        },
       );
     },
 
-    removeEdge: (edgeId) => {
-      edit((graph) => {
-        const index = graph.edges.findIndex((candidate) => candidate.id === edgeId);
-        if (index === -1) return;
-        graph.edges.splice(index, 1);
-      });
+    removeEdge: (edgeId, path) => {
+      edit(
+        (graph) => {
+          const index = graph.edges.findIndex((candidate) => candidate.id === edgeId);
+          if (index === -1) return;
+          graph.edges.splice(index, 1);
+        },
+        path === undefined ? undefined : { path },
+      );
     },
 
-    deleteElements: ({ nodeIds = [], edgeIds = [] }) => {
-      if (nodeIds.length === 0 && edgeIds.length === 0) return;
-      const doomedNodes = new Set(nodeIds);
-      const doomedEdges = new Set(edgeIds);
+    deleteElements: ({ nodeIds = [], edgeIds = [], refs, path }) => {
+      // Callers may address elements in one graph (nodeIds/edgeIds) or across
+      // several at once (refs) — an expanded group puts more than one graph on
+      // screen, and one Delete press must still be one undo.
+      const targetPath = path ?? get().path;
+      const key = (p: GraphPath) => p.join("\u0000");
 
-      edit((graph) => {
-        graph.nodes = graph.nodes.filter((node) => !doomedNodes.has(node.id));
-        graph.edges = graph.edges.filter(
-          (edge) =>
-            !doomedEdges.has(edge.id) &&
-            // Edges left hanging off a deleted node go with it; the file
-            // validator rejects a dangling reference.
-            !doomedNodes.has(edge.source) &&
-            !doomedNodes.has(edge.target),
-        );
-      });
+      const byPath = new Map<string, { path: GraphPath; nodes: Set<string>; edges: Set<string> }>();
+      const bucket = (p: GraphPath) => {
+        const k = key(p);
+        let found = byPath.get(k);
+        if (!found) {
+          found = { path: p, nodes: new Set(), edges: new Set() };
+          byPath.set(k, found);
+        }
+        return found;
+      };
+
+      for (const id of nodeIds) bucket(targetPath).nodes.add(id);
+      for (const id of edgeIds) bucket(targetPath).edges.add(id);
+      for (const ref of refs?.nodes ?? []) bucket(ref.path).nodes.add(ref.id);
+      for (const ref of refs?.edges ?? []) bucket(ref.path).edges.add(ref.id);
+
+      const groups = [...byPath.values()].filter(
+        (group) => group.nodes.size > 0 || group.edges.size > 0,
+      );
+      if (groups.length === 0) return;
+
+      editRoot(
+        (root) => {
+          for (const group of groups) {
+            const graph = resolveGraph(root, group.path);
+            if (!graph) continue;
+
+            graph.nodes = graph.nodes.filter((node) => !group.nodes.has(node.id));
+            graph.edges = graph.edges.filter(
+              (edge) =>
+                !group.edges.has(edge.id) &&
+                // Edges left hanging off a deleted node go with it; the file
+                // validator rejects a dangling reference.
+                !group.nodes.has(edge.source) &&
+                !group.nodes.has(edge.target),
+            );
+          }
+        },
+        { stampPath: groups[0]!.path },
+      );
     },
 
     endGesture: () => set({ coalesceKey: null }),

@@ -8,6 +8,7 @@
  */
 
 import { useGraphStore } from "./graphStore.js";
+import { useViewStore } from "./viewStore.js";
 import { selectIsDirty } from "./selectors.js";
 import { deserialize, serialize } from "../utils/fileFormat.js";
 import { createGraph } from "../utils/factories.js";
@@ -65,6 +66,8 @@ async function confirmDiscard(): Promise<boolean> {
 export async function newDocument(): Promise<void> {
   if (!(await confirmDiscard())) return;
   useGraphStore.getState().loadDocument(createGraph({ name: "Untitled" }), null);
+  // Expansion is keyed by node id; a different document must not inherit it.
+  useViewStore.getState().collapseAll();
 }
 
 /** Loads the text of a `.mindgraph` file, reporting any problems it contains. */
@@ -82,6 +85,7 @@ async function adopt(filePath: string, contents: string): Promise<boolean> {
   }
 
   useGraphStore.getState().loadDocument(parsed.file.graph, filePath);
+  useViewStore.getState().collapseAll();
 
   if (parsed.warnings.length > 0) {
     // Warnings are survivable, so the document is already open behind this.

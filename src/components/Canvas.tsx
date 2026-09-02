@@ -22,7 +22,6 @@ import {
   BackgroundVariant,
   Controls,
   ReactFlow,
-  MarkerType,
   applyEdgeChanges,
   applyNodeChanges,
   type Connection,
@@ -35,11 +34,13 @@ import {
 import type React from "react";
 import { useCallback, useEffect, useState } from "react";
 
-import type { Edge, Node } from "../types/graph.js";
+import type { Graph, GraphPath } from "../types/graph.js";
 import { useGraphStore } from "../store/graphStore.js";
 import { selectCurrentGraph } from "../store/selectors.js";
+import { useViewStore } from "../store/viewStore.js";
 import { CompoundNode } from "./CompoundNode.js";
-import type { FlowNodeData, MindGraphFlowNode } from "./flowTypes.js";
+import { flatten, parseRef, refKey, GROUP_HEADER, GROUP_PADDING } from "./flatten.js";
+import type { MindGraphFlowNode } from "./flowTypes.js";
 import { IdeaNode } from "./IdeaNode.js";
 
 import "@xyflow/react/dist/style.css";
@@ -52,31 +53,8 @@ const nodeTypes: NodeTypes = {
   compound: CompoundNode,
 };
 
-function toFlowNode(node: Node): MindGraphFlowNode {
-  return {
-    id: node.id,
-    type: node.type,
-    position: node.position,
-    // Widening only: every field of NodeData keeps its own type.
-    data: node.data as FlowNodeData,
-  };
-}
-
-function toFlowEdge(edge: Edge): FlowEdge {
-  return {
-    id: edge.id,
-    source: edge.source,
-    target: edge.target,
-    // The graph is directed, so every edge states which way it points.
-    markerEnd: { type: MarkerType.ArrowClosed, width: 18, height: 18 },
-    ...(edge.label !== undefined ? { label: edge.label } : {}),
-    // Spread conditionally: `exactOptionalPropertyTypes` rejects an explicit
-    // `undefined` for an optional property.
-    ...(edge.style === "dashed" ? { style: { strokeDasharray: "6 4" } } : {}),
-  };
-}
-
 export interface Selection {
+  /** Composite refs — see `flatten.ts`. Decode with `parseRef`. */
   nodeIds: readonly string[];
   edgeIds: readonly string[];
 }
@@ -89,41 +67,40 @@ export interface CanvasProps {
 
 export function Canvas({ onSelectionChange }: CanvasProps) {
   const graph = useGraphStore(selectCurrentGraph);
+  const basePath = useGraphStore((state) => state.path);
   const moveNode = useGraphStore((state) => state.moveNode);
   const deleteElements = useGraphStore((state) => state.deleteElements);
   const connect = useGraphStore((state) => state.connect);
-  const enterSubgraph = useGraphStore((state) => state.enterSubgraph);
   const setViewport = useGraphStore((state) => state.setViewport);
   const endGesture = useGraphStore((state) => state.endGesture);
 
-  const [nodes, setNodes] = useState<MindGraphFlowNode[]>(() => graph.nodes.map(toFlowNode));
-  const [edges, setEdges] = useState<FlowEdge[]>(() => graph.edges.map(toFlowEdge));
+  const expanded = useViewStore((state) => state.expanded);
+  const toggleExpanded = useViewStore((state) => state.toggleExpanded);
 
-  // Re-sync when the document changes from outside the canvas. Existing nodes
+  const [nodes, setNodes] = useState<MindGraphFlowNode[]>(
+    () => flatten(graph, basePath, expanded).nodes,
+  );
+  const [edges, setEdges] = useState<FlowEdge[]>(() => flatten(graph, basePath, expanded).edges);
+
+  // Re-sync whenever the document or the expansion set changes. Existing nodes
   // are updated in place rather than replaced, so React Flow keeps the
   // measurements it has already taken.
   useEffect(() => {
+    const next = flatten(graph, basePath, expanded);
+
     setNodes((current) => {
       const existing = new Map(current.map((node) => [node.id, node]));
-      return graph.nodes.map((node) => {
+      return next.nodes.map((node) => {
         const previous = existing.get(node.id);
-        if (!previous) return toFlowNode(node);
-        return {
-          ...previous,
-          type: node.type,
-          position: node.position,
-          data: node.data as FlowNodeData,
-        };
+        return previous ? { ...previous, ...node } : node;
       });
     });
-  }, [graph.nodes]);
 
-  useEffect(() => {
     setEdges((current) => {
       const existing = new Map(current.map((edge) => [edge.id, edge]));
-      return graph.edges.map((edge) => ({ ...existing.get(edge.id), ...toFlowEdge(edge) }));
+      return next.edges.map((edge) => ({ ...existing.get(edge.id), ...edge }));
     });
-  }, [graph.edges]);
+  }, [graph, basePath, expanded]);
 
   // Derived as strings so the effect below fires on a genuine selection change
   // rather than on every new array identity.
@@ -144,34 +121,36 @@ export function Canvas({ onSelectionChange }: CanvasProps) {
   }, [selectedNodeKey, selectedEdgeKey, onSelectionChange]);
 
   /**
-   * Rejects a connection before the user commits to it, so an invalid drop
-   * shows as a refusal rather than appearing to work and being discarded. The
-   * store enforces the same rules; this only surfaces them in the UI.
+   * Connections may only join two nodes of the same graph. Once a group is
+   * expanded its children are visible beside their parent's siblings, so this
+   * rule has to be enforced where the user can see it: the drop is refused
+   * mid-drag rather than accepted and then rejected by the file validator.
+   *
+   * The meaning is deliberate — to relate a group to something outside it,
+   * connect the group itself.
    */
   const isValidConnection = useCallback<IsValidConnection>(
     ({ source, target }) => {
       if (source === null || target === null || source === target) return false;
-      return !graph.edges.some((edge) => edge.source === source && edge.target === target);
-    },
-    [graph.edges],
-  );
 
-  /**
-   * Double-clicking a group opens it: the canvas swaps to that node's own
-   * graph. This is a navigation change, not a document edit — the store keeps
-   * one tree and simply points at a different part of it.
-   */
-  const onNodeDoubleClick = useCallback(
-    (_event: React.MouseEvent, node: MindGraphFlowNode) => {
-      if (node.type === "compound") enterSubgraph(node.id);
+      const from = parseRef(source);
+      const to = parseRef(target);
+      if (from.path.join("\u0000") !== to.path.join("\u0000")) return false;
+
+      const owner = resolveOwner(graph, basePath, from.path);
+      if (!owner) return false;
+      return !owner.edges.some((edge) => edge.source === from.id && edge.target === to.id);
     },
-    [enterSubgraph],
+    [graph, basePath],
   );
 
   const onConnect = useCallback(
     ({ source, target }: Connection) => {
       if (source === null || target === null) return;
-      connect(source, target);
+      const from = parseRef(source);
+      const to = parseRef(target);
+      if (from.path.join("\u0000") !== to.path.join("\u0000")) return;
+      connect(from.id, to.id, { path: from.path });
     },
     [connect],
   );
@@ -181,23 +160,23 @@ export function Canvas({ onSelectionChange }: CanvasProps) {
       setNodes((current) => applyNodeChanges(changes, current));
 
       for (const change of changes) {
-        switch (change.type) {
-          case "position":
-            // `dragging` is true for every frame of a drag; those collapse into
-            // a single history entry, and onNodeDragStop closes the gesture.
-            if (change.position) {
-              moveNode(change.id, change.position, { coalesce: change.dragging === true });
-            }
-            break;
-          default:
-            // Selection and dimension changes are view state; React Flow's own
-            // copy is the right and only home for them. Deletions arrive via
-            // onDelete instead, which reports nodes and edges together.
-            break;
-        }
+        if (change.type !== "position" || !change.position) continue;
+
+        const ref = parseRef(change.id);
+        const isChild = ref.path.length > basePath.length;
+        // A child's position is reported relative to its container, so the
+        // container's padding and header have to come back off before storing.
+        const position = isChild
+          ? { x: change.position.x - GROUP_PADDING, y: change.position.y - GROUP_HEADER }
+          : change.position;
+
+        moveNode(ref.id, position, {
+          coalesce: change.dragging === true,
+          path: ref.path,
+        });
       }
     },
-    [moveNode],
+    [moveNode, basePath],
   );
 
   const onEdgesChange = useCallback((changes: EdgeChange<FlowEdge>[]) => {
@@ -205,18 +184,27 @@ export function Canvas({ onSelectionChange }: CanvasProps) {
   }, []);
 
   /**
-   * One delete gesture, one store transaction, one undo — React Flow would
-   * otherwise report the node and its edges through two separate change
-   * callbacks, costing two undo presses to reverse a single Delete press.
+   * One delete gesture, one store transaction, one undo — even when the
+   * selection spans a container and its contents.
    */
   const onDelete = useCallback(
     ({ nodes: deletedNodes, edges: deletedEdges }: { nodes: MindGraphFlowNode[]; edges: FlowEdge[] }) => {
       deleteElements({
-        nodeIds: deletedNodes.map((node) => node.id),
-        edgeIds: deletedEdges.map((edge) => edge.id),
+        refs: {
+          nodes: deletedNodes.map((node) => parseRef(node.id)),
+          edges: deletedEdges.map((edge) => parseRef(edge.id)),
+        },
       });
     },
     [deleteElements],
+  );
+
+  /** Double-clicking a group opens or closes it in place. */
+  const onNodeDoubleClick = useCallback(
+    (_event: React.MouseEvent, node: MindGraphFlowNode) => {
+      if (node.type === "compound") toggleExpanded(node.id);
+    },
+    [toggleExpanded],
   );
 
   return (
@@ -224,7 +212,7 @@ export function Canvas({ onSelectionChange }: CanvasProps) {
       <ReactFlow
         // Remounting per graph gives each sub-graph its own camera rather than
         // carrying one viewport across the whole document.
-        key={graph.id}
+        key={refKey(basePath, graph.id)}
         nodes={nodes}
         edges={edges}
         nodeTypes={nodeTypes}
@@ -246,4 +234,15 @@ export function Canvas({ onSelectionChange }: CanvasProps) {
       </ReactFlow>
     </div>
   );
+}
+
+/** The graph at `path`, given that `graph` is the one shown at `basePath`. */
+function resolveOwner(graph: Graph, basePath: GraphPath, path: GraphPath): Graph | null {
+  let current: Graph = graph;
+  for (const nodeId of path.slice(basePath.length)) {
+    const subgraph = current.nodes.find((node) => node.id === nodeId)?.data.subgraph;
+    if (!subgraph) return null;
+    current = subgraph;
+  }
+  return current;
 }

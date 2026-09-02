@@ -218,3 +218,15 @@
 .panel-nesting .panel-hint {
   margin-top: 7px;
 }
+
+.panel-action-quiet {
+  margin-top: 6px;
+  background: transparent;
+  color: var(--text-dim);
+}
+
+.panel-action-quiet:disabled {
+  opacity: 0.45;
+  cursor: default;
+  border-color: var(--border) !important;
+}

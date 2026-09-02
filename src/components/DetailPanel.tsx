@@ -10,10 +10,12 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import Markdown from "react-markdown";
 
-import { useGraphStore } from "../store/graphStore.js";
-import { selectCurrentGraph } from "../store/selectors.js";
-import type { Edge, Node } from "../types/graph.js";
+import { useGraphStore, type ElementRef } from "../store/graphStore.js";
+import { useViewStore } from "../store/viewStore.js";
+import type { Edge, Graph, Node } from "../types/graph.js";
 import type { Selection } from "./Canvas.js";
+import { parseRef, refKey } from "./flatten.js";
+import { resolveGraph } from "../utils/graphPath.js";
 
 import "./detailPanel.css";
 
@@ -24,7 +26,7 @@ const TYPING_IDLE_MS = 700;
  * Routes edits through the store's coalescing so a burst of typing is one undo
  * step, and closes the burst on an idle pause or on blur.
  */
-function useCoalescedEdit(nodeId: string | undefined) {
+function useCoalescedEdit(ref: ElementRef | undefined) {
   const updateNodeData = useGraphStore((state) => state.updateNodeData);
   const endGesture = useGraphStore((state) => state.endGesture);
   const idleTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
@@ -35,23 +37,23 @@ function useCoalescedEdit(nodeId: string | undefined) {
   }, [endGesture]);
 
   // A burst must not outlive the panel, or the next edit would merge into it.
-  useEffect(() => endBurst, [endBurst, nodeId]);
+  useEffect(() => endBurst, [endBurst, ref?.id]);
 
   const edit = useCallback(
     (field: "title" | "description", value: string | undefined) => {
-      if (!nodeId) return;
-      updateNodeData(nodeId, { [field]: value }, { coalesce: field });
+      if (!ref) return;
+      updateNodeData(ref.id, { [field]: value }, { coalesce: field, path: ref.path });
       clearTimeout(idleTimer.current);
       idleTimer.current = setTimeout(endGesture, TYPING_IDLE_MS);
     },
-    [nodeId, updateNodeData, endGesture],
+    [ref, updateNodeData, endGesture],
   );
 
   return { edit, endBurst };
 }
 
 /** Editor for a single edge: its label and whether it reads as tentative. */
-function EdgeEditor({ edge }: { edge: Edge }) {
+function EdgeEditor({ edge, path }: { edge: Edge; path: readonly string[] }) {
   const updateEdge = useGraphStore((state) => state.updateEdge);
   const endGesture = useGraphStore((state) => state.endGesture);
   const idleTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
@@ -77,7 +79,11 @@ function EdgeEditor({ edge }: { edge: Edge }) {
         placeholder="How are these related?"
         onChange={(event) => {
           const value = event.target.value;
-          updateEdge(edge.id, { label: value === "" ? undefined : value }, { coalesce: "label" });
+          updateEdge(
+            edge.id,
+            { label: value === "" ? undefined : value },
+            { coalesce: "label", path },
+          );
           clearTimeout(idleTimer.current);
           idleTimer.current = setTimeout(endGesture, TYPING_IDLE_MS);
         }}
@@ -90,14 +96,14 @@ function EdgeEditor({ edge }: { edge: Edge }) {
           <button
             type="button"
             className={edge.style === "dashed" ? "" : "active"}
-            onClick={() => updateEdge(edge.id, { style: undefined })}
+            onClick={() => updateEdge(edge.id, { style: undefined }, { path })}
           >
             Solid
           </button>
           <button
             type="button"
             className={edge.style === "dashed" ? "active" : ""}
-            onClick={() => updateEdge(edge.id, { style: "dashed" })}
+            onClick={() => updateEdge(edge.id, { style: "dashed" }, { path })}
           >
             Tentative
           </button>
@@ -115,14 +121,23 @@ function EdgeEditor({ edge }: { edge: Edge }) {
  * Turning an idea into a group, and opening one. Both are offered here because
  * the canvas affordance — double-click — is not discoverable on its own.
  */
-function NestingControls({ node }: { node: Node }) {
+function NestingControls({ node, nodeRef }: { node: Node; nodeRef: ElementRef }) {
   const convertToCompound = useGraphStore((state) => state.convertToCompound);
   const enterSubgraph = useGraphStore((state) => state.enterSubgraph);
+  const expanded = useViewStore((state) => state.expanded);
+  const setExpanded = useViewStore((state) => state.setExpanded);
+
+  const key = refKey(nodeRef.path, nodeRef.id);
+  const isOpen = expanded.has(key);
 
   if (node.type !== "compound") {
     return (
       <div className="panel-nesting">
-        <button type="button" className="panel-action" onClick={() => convertToCompound(node.id)}>
+        <button
+          type="button"
+          className="panel-action"
+          onClick={() => convertToCompound(node.id, nodeRef.path)}
+        >
           Turn into a group
         </button>
         <p className="panel-hint">
@@ -137,8 +152,22 @@ function NestingControls({ node }: { node: Node }) {
 
   return (
     <div className="panel-nesting">
-      <button type="button" className="panel-action" onClick={() => enterSubgraph(node.id)}>
-        Open group
+      <button type="button" className="panel-action" onClick={() => setExpanded(key, !isOpen)}>
+        {isOpen ? "Close group" : "Open group here"}
+      </button>
+      {/* Focus mode: give the group the whole canvas, with breadcrumbs back. */}
+      <button
+        type="button"
+        className="panel-action panel-action-quiet"
+        onClick={() => enterSubgraph(node.id)}
+        disabled={nodeRef.path.length > 0}
+        title={
+          nodeRef.path.length > 0
+            ? "Only a group at the current level can be focused"
+            : undefined
+        }
+      >
+        Focus on it
       </button>
       <p className="panel-hint">
         {count === 0
@@ -154,15 +183,19 @@ interface DetailPanelProps {
 }
 
 export function DetailPanel({ selection }: DetailPanelProps) {
-  const graph = useGraphStore(selectCurrentGraph);
+  const root = useGraphStore((state) => state.root);
   const [showPreview, setShowPreview] = useState(false);
 
   const { nodeIds, edgeIds } = selection;
-  const selectedId = nodeIds.length === 1 && edgeIds.length === 0 ? nodeIds[0] : undefined;
-  const node: Node | undefined = graph.nodes.find((candidate) => candidate.id === selectedId);
+  const selectedKey = nodeIds.length === 1 && edgeIds.length === 0 ? nodeIds[0] : undefined;
+  // Selection carries a full path, because an expanded group puts nodes from
+  // several graphs on screen at once.
+  const nodeRef = selectedKey === undefined ? undefined : parseRef(selectedKey);
+  const owner: Graph | null = nodeRef ? resolveGraph(root, nodeRef.path) : null;
+  const node: Node | undefined = owner?.nodes.find((candidate) => candidate.id === nodeRef!.id);
 
   // Hooks must run unconditionally, so this sits above every early return.
-  const { edit, endBurst } = useCoalescedEdit(node?.id);
+  const { edit, endBurst } = useCoalescedEdit(node ? nodeRef : undefined);
 
   const total = nodeIds.length + edgeIds.length;
 
@@ -181,8 +214,10 @@ export function DetailPanel({ selection }: DetailPanelProps) {
   }
 
   if (!node) {
-    const edge = edgeIds.length === 1 ? graph.edges.find((e) => e.id === edgeIds[0]) : undefined;
-    if (edge) return <EdgeEditor edge={edge} key={edge.id} />;
+    const edgeRef = edgeIds.length === 1 ? parseRef(edgeIds[0]!) : undefined;
+    const edgeOwner = edgeRef ? resolveGraph(root, edgeRef.path) : null;
+    const edge = edgeOwner?.edges.find((candidate) => candidate.id === edgeRef!.id);
+    if (edge && edgeRef) return <EdgeEditor edge={edge} path={edgeRef.path} key={edge.id} />;
 
     return (
       <aside className="panel">
@@ -195,7 +230,7 @@ export function DetailPanel({ selection }: DetailPanelProps) {
     <aside className="panel">
       <div className="panel-kind">{node.type === "compound" ? "Group" : "Idea"}</div>
 
-      <NestingControls node={node} />
+      <NestingControls node={node} nodeRef={nodeRef!} />
 
       <label className="panel-label" htmlFor="node-title">
         Title

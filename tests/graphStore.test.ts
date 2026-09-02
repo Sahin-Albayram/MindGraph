@@ -526,6 +526,94 @@ describe("working several levels deep", () => {
   });
 });
 
+describe("editing a graph other than the one on screen", () => {
+  // An expanded group puts several graphs on screen at once, so edits carry an
+  // explicit path rather than assuming "the current graph".
+  function rootWithGroup(): { groupId: string; innerId: string } {
+    const inner = createGraph({ name: "Inside" });
+    const innerNode = createIdeaNode({ title: "Child", position: { x: 10, y: 10 } });
+    inner.nodes = [innerNode];
+    const group = createCompoundNode({ title: "Group", position: { x: 0, y: 0 }, subgraph: inner });
+    state().addNode(group);
+    return { groupId: group.id, innerId: innerNode.id };
+  }
+
+  it("moves a child without leaving the parent graph", () => {
+    const { groupId, innerId } = rootWithGroup();
+    expect(state().path).toEqual([]);
+
+    state().moveNode(innerId, { x: 99, y: 44 }, { path: [groupId] });
+
+    expect(state().path).toEqual([]);
+    const child = state().root.nodes[0]!.data.subgraph!.nodes[0]!;
+    expect(child.position).toEqual({ x: 99, y: 44 });
+  });
+
+  it("edits a child's data by path", () => {
+    const { groupId, innerId } = rootWithGroup();
+    state().updateNodeData(innerId, { title: "Renamed" }, { path: [groupId] });
+    expect(state().root.nodes[0]!.data.subgraph!.nodes[0]!.data.title).toBe("Renamed");
+  });
+
+  it("connects two children by path, leaving the parent's edges alone", () => {
+    const { groupId } = rootWithGroup();
+    const second = createIdeaNode({ title: "Second", position: { x: 200, y: 0 } });
+    state().addNode(second, [groupId]);
+
+    const inner = state().root.nodes[0]!.data.subgraph!;
+    state().connect(inner.nodes[0]!.id, second.id, { path: [groupId] });
+
+    expect(state().root.nodes[0]!.data.subgraph!.edges).toHaveLength(1);
+    expect(state().root.edges).toEqual([]);
+  });
+
+  it("deletes across two graphs as a single undo step", () => {
+    const outside = addIdea("Outside");
+    const { groupId, innerId } = rootWithGroup();
+    const historyBefore = state().past.length;
+
+    state().deleteElements({
+      refs: {
+        nodes: [
+          { path: [], id: outside },
+          { path: [groupId], id: innerId },
+        ],
+      },
+    });
+
+    expect(state().past.length).toBe(historyBefore + 1);
+    expect(selectCurrentGraph(state()).nodes.map((n) => n.id)).toEqual([groupId]);
+    expect(state().root.nodes[0]!.data.subgraph!.nodes).toEqual([]);
+
+    state().undo();
+    expect(selectCurrentGraph(state()).nodes).toHaveLength(2);
+    expect(state().root.nodes[1]!.data.subgraph!.nodes).toHaveLength(1);
+  });
+
+  it("coalesces a child's drag into one entry, same as any other", () => {
+    const { groupId, innerId } = rootWithGroup();
+    const historyBefore = state().past.length;
+
+    for (const x of [12, 40, 96]) {
+      state().moveNode(innerId, { x, y: 10 }, { coalesce: true, path: [groupId] });
+    }
+    state().moveNode(innerId, { x: 96, y: 10 }, { coalesce: false, path: [groupId] });
+    state().endGesture();
+
+    expect(state().past.length).toBe(historyBefore + 1);
+  });
+
+  it("keeps the document valid after cross-graph editing", () => {
+    const { groupId, innerId } = rootWithGroup();
+    state().updateNodeData(innerId, { description: "Deep note" }, { path: [groupId] });
+    state().moveNode(innerId, { x: 5, y: 5 }, { path: [groupId] });
+
+    const parsed = deserialize(serialize(state().root));
+    if (!parsed.ok) throw new Error(parsed.errors.join("\n"));
+    expect(parsed.file.graph.nodes[0]!.data.subgraph!.nodes[0]!.data.description).toBe("Deep note");
+  });
+});
+
 describe("undo and redo", () => {
   it("reverses and replays an edit", () => {
     addIdea("First");
