@@ -115,4 +115,28 @@
   right: 12px;
   margin-top: 0;
   opacity: 0.75;
+  white-space: nowrap;
+}
+
+/* The count sits in the top-right corner, so the title must stop short of it
+   rather than running underneath. */
+.node.compound.expanded .node-title {
+  padding-right: 92px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* The container a dragged node is about to be dropped into. Says where the
+   node will land before the user commits to it. */
+.node.compound.drop-target {
+  border-color: var(--accent);
+  border-style: solid;
+  background: color-mix(in srgb, var(--accent) 12%, var(--compound-bg));
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 40%, transparent);
+}
+
+.node.compound.drop-target .node-count {
+  color: var(--accent);
+  opacity: 1;
 }

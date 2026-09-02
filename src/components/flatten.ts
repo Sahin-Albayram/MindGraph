@@ -21,7 +21,7 @@ import type { Edge as FlowEdge } from "@xyflow/react";
 import { MarkerType } from "@xyflow/react";
 
 import type { ElementRef } from "../store/graphStore.js";
-import type { Edge, Graph, GraphPath } from "../types/graph.js";
+import type { Edge, Graph, GraphPath, Node } from "../types/graph.js";
 import type { FlowNodeData, MindGraphFlowNode } from "./flowTypes.js";
 
 /** Node ids are UUIDs, so this cannot occur inside one. */
@@ -73,14 +73,41 @@ function toFlowEdge(edge: Edge, path: GraphPath): FlowEdge {
   };
 }
 
-/** Container size that holds every child at its current position. */
-function sizeFor(subgraph: Graph): { width: number; height: number } {
+/**
+ * How much room a node takes up. A group drawn open is as big as its own
+ * container, so sizing has to recurse — otherwise a parent is measured as if
+ * its expanded child were an ordinary card, and the child spills out of it.
+ */
+export function footprintOf(
+  node: Node,
+  path: GraphPath,
+  expanded: ReadonlySet<string>,
+): { width: number; height: number } {
+  const subgraph = node.data.subgraph;
+  if (node.type === "compound" && subgraph && expanded.has(refKey(path, node.id))) {
+    return sizeFor(subgraph, [...path, node.id], expanded);
+  }
+  return { width: CHILD_WIDTH, height: CHILD_HEIGHT };
+}
+
+/**
+ * Container size that holds every child at its current position.
+ *
+ * `subgraphPath` is the path *of the sub-graph itself* — that is, the owning
+ * group's path plus its id — because that is where its children live.
+ */
+export function sizeFor(
+  subgraph: Graph,
+  subgraphPath: GraphPath,
+  expanded: ReadonlySet<string>,
+): { width: number; height: number } {
   let width = MIN_GROUP_WIDTH;
   let height = MIN_GROUP_HEIGHT;
 
   for (const child of subgraph.nodes) {
-    width = Math.max(width, child.position.x + CHILD_WIDTH + GROUP_PADDING);
-    height = Math.max(height, child.position.y + CHILD_HEIGHT + GROUP_PADDING);
+    const footprint = footprintOf(child, subgraphPath, expanded);
+    width = Math.max(width, child.position.x + footprint.width + GROUP_PADDING);
+    height = Math.max(height, child.position.y + footprint.height + GROUP_PADDING);
   }
 
   return { width, height: height + GROUP_HEADER };
@@ -123,7 +150,7 @@ export function flatten(
         ...(parentKey === null ? {} : { parentId: parentKey }),
         ...(isOpen
           ? {
-              style: sizeFor(node.data.subgraph!),
+              style: sizeFor(node.data.subgraph!, [...path, node.id], expanded),
               // A container must not sit on top of its own children.
               zIndex: -1,
             }
@@ -176,7 +203,7 @@ export function containerBoxes(
       const subgraph = node.data.subgraph;
       if (node.type !== "compound" || !subgraph || !expanded.has(key)) continue;
 
-      const { width, height } = sizeFor(subgraph);
+      const { width, height } = sizeFor(subgraph, [...path, node.id], expanded);
       const x = originX + node.position.x;
       const y = originY + node.position.y;
       boxes.push({ key, path: [...path, node.id], x, y, width, height, depth });

@@ -13,12 +13,20 @@ import "./nodes.css";
  */
 export function CompoundNode({ data, selected }: NodeProps<CompoundFlowNode>) {
   const count = data.subgraph?.nodes.length ?? 0;
-  // Set by the flattening layer, not by the document: expansion is view state.
+  // Set by the canvas, not by the document: both are view state.
   const expanded = data["expanded"] === true;
+  const isDropTarget = data["dropTarget"] === true;
 
   return (
     <div
-      className={`node compound${expanded ? " expanded" : ""}${selected ? " selected" : ""}`}
+      className={[
+        "node compound",
+        expanded ? "expanded" : "",
+        selected ? "selected" : "",
+        isDropTarget ? "drop-target" : "",
+      ]
+        .filter(Boolean)
+        .join(" ")}
     >
       <Handle type="target" position={Position.Left} className="node-handle" />
 
@@ -36,13 +44,9 @@ export function CompoundNode({ data, selected }: NodeProps<CompoundFlowNode>) {
           <circle cx="5" cy="9.5" r="1.8" fill="currentColor" />
           <path d="M3 3 L9 4.5 M9 4.5 L5 9.5" stroke="currentColor" strokeWidth="0.9" fill="none" />
         </svg>
-        {expanded
-          ? count === 0
-            ? "empty — double-click to close"
-            : `${count} node${count === 1 ? "" : "s"}`
-          : count === 0
-            ? "empty group"
-            : `${count} node${count === 1 ? "" : "s"} inside`}
+        {count === 0
+          ? "empty"
+          : `${count} node${count === 1 ? "" : "s"}${expanded ? "" : " inside"}`}
       </div>
 
       <Handle type="source" position={Position.Right} className="node-handle" />

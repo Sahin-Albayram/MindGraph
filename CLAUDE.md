@@ -156,6 +156,15 @@ array. It owns two things:
   plus an assumed child footprint, because React Flow measures nodes only after
   they render.
 
+**Container sizing recurses.** `sizeFor` measures an expanded child as its own
+container, not as an ordinary card — otherwise a nested open group overflows
+the box drawn around it.
+
+**Drop detection reads the position React Flow hands the drag handler**, never
+the store. Mid-drag the store lags behind, and a stale position keeps the node
+outside every container until the moment it is released — the highlight then
+never appears even though the drop itself works.
+
 **Nodes move between graphs by being dragged.** A drop is decided by the
 node's centre against the container boxes from `containerBoxes()`, innermost
 first; dropping outside every container moves a node up to the graph on screen.
@@ -167,9 +176,14 @@ document.
 Edges tying a moved node to nodes left behind cannot survive, for the same
 reason cross-level edges cannot exist; they are dropped in the same undo entry.
 
-A group can also be filled without dragging — the panel's "Add a node inside" —
-because the toolbar's Add buttons target the graph on screen, which while a
-group is merely expanded is still its *parent*.
+A group can be filled without dragging in two ways: the panel's "Add a node
+inside", and the toolbar's Add buttons, which place into whichever expanded
+container sits under the middle of the canvas. Both matter — a node dropped on
+top of a container it does not belong to looks inside the group while the
+document says otherwise.
+
+The "middle of the canvas" is not the middle of the window: the detail panel
+takes 320px off the right, so placement measures `.canvas`, not `window`.
 
 **Edges may not cross a group boundary.** The file format addresses an edge's
 endpoints by plain id within one graph, so an edge between levels is not

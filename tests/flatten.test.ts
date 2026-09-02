@@ -3,9 +3,12 @@ import { describe, expect, it } from "vitest";
 import {
   GROUP_HEADER,
   GROUP_PADDING,
+  containerBoxes,
   flatten,
+  footprintOf,
   parseRef,
   refKey,
+  sizeFor,
 } from "../src/components/flatten.js";
 import {
   createCompoundNode,
@@ -144,6 +147,86 @@ describe("flatten", () => {
     expect(flat.nodes.map((node) => node.id)).toContain(
       refKey([outerGroup.id, innerGroup.id], deepest.nodes[0]!.id),
     );
+  });
+
+  it("grows a container to fit an expanded group inside it", () => {
+    // The bug this guards: a nested open group was measured as though it were
+    // an ordinary card, so it overflowed the container drawn around it.
+    const deepest = createGraph({ name: "Deepest" });
+    deepest.nodes = [
+      createIdeaNode({ title: "Far", position: { x: 320, y: 260 } }),
+    ];
+
+    const middle = createGraph({ name: "Middle" });
+    const innerGroup = createCompoundNode({
+      title: "Inner",
+      position: { x: 30, y: 20 },
+      subgraph: deepest,
+    });
+    middle.nodes = [innerGroup];
+
+    const outerGroup = createCompoundNode({
+      title: "Outer",
+      position: { x: 0, y: 0 },
+      subgraph: middle,
+    });
+    const root = createGraph({ name: "Root" });
+    root.nodes = [outerGroup];
+
+    const outerKey = refKey([], outerGroup.id);
+    const innerKey = refKey([outerGroup.id], innerGroup.id);
+
+    const collapsedInner = sizeFor(middle, [outerGroup.id], new Set([outerKey]));
+    const expandedInner = sizeFor(middle, [outerGroup.id], new Set([outerKey, innerKey]));
+
+    expect(expandedInner.width).toBeGreaterThan(collapsedInner.width);
+    expect(expandedInner.height).toBeGreaterThan(collapsedInner.height);
+
+    // The outer container must be wide enough for the inner one drawn at its
+    // own offset, plus padding.
+    const inner = sizeFor(deepest, [outerGroup.id, innerGroup.id], new Set());
+    expect(expandedInner.width).toBeGreaterThanOrEqual(30 + inner.width + GROUP_PADDING);
+  });
+
+  it("measures a collapsed group as an ordinary card", () => {
+    const inner = createGraph({ name: "Inner" });
+    inner.nodes = [createIdeaNode({ title: "Deep", position: { x: 900, y: 900 } })];
+    const group = createCompoundNode({ title: "G", position: { x: 0, y: 0 }, subgraph: inner });
+
+    const closed = footprintOf(group, [], new Set());
+    const open = footprintOf(group, [], new Set([refKey([], group.id)]));
+
+    expect(closed.width).toBeLessThan(open.width);
+    expect(closed.height).toBeLessThan(open.height);
+  });
+
+  it("reports container boxes innermost last, so the deepest drop wins", () => {
+    const deepest = createGraph({ name: "Deepest" });
+    const middle = createGraph({ name: "Middle" });
+    const innerGroup = createCompoundNode({
+      title: "Inner",
+      position: { x: 40, y: 40 },
+      subgraph: deepest,
+    });
+    middle.nodes = [innerGroup];
+    const outerGroup = createCompoundNode({
+      title: "Outer",
+      position: { x: 100, y: 100 },
+      subgraph: middle,
+    });
+    const root = createGraph({ name: "Root" });
+    root.nodes = [outerGroup];
+
+    const expanded = new Set([
+      refKey([], outerGroup.id),
+      refKey([outerGroup.id], innerGroup.id),
+    ]);
+    const boxes = containerBoxes(root, [], expanded);
+
+    expect(boxes.map((box) => box.depth)).toEqual([0, 1]);
+    // The inner box is offset by the outer's padding and header.
+    expect(boxes[1]!.x).toBe(100 + GROUP_PADDING + 40);
+    expect(boxes[1]!.y).toBe(100 + GROUP_HEADER + 40);
   });
 
   it("keys against the graph on screen when viewing a sub-graph", () => {

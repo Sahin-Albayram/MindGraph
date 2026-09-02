@@ -33,7 +33,7 @@ import {
   type OnNodeDrag,
 } from "@xyflow/react";
 import type React from "react";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import type { Graph, GraphPath } from "../types/graph.js";
 import { useGraphStore } from "../store/graphStore.js";
@@ -41,7 +41,6 @@ import { selectCurrentGraph } from "../store/selectors.js";
 import { useViewStore } from "../store/viewStore.js";
 import { CompoundNode } from "./CompoundNode.js";
 import {
-  absolutePositions,
   containerBoxes,
   flatten,
   parseRef,
@@ -86,6 +85,9 @@ export function Canvas({ onSelectionChange }: CanvasProps) {
 
   const expanded = useViewStore((state) => state.expanded);
   const toggleExpanded = useViewStore((state) => state.toggleExpanded);
+
+  /** Container the dragged node would drop into, highlighted while dragging. */
+  const [dropTargetKey, setDropTargetKey] = useState<string | null>(null);
 
   const [nodes, setNodes] = useState<MindGraphFlowNode[]>(
     () => flatten(graph, basePath, expanded).nodes,
@@ -210,33 +212,41 @@ export function Canvas({ onSelectionChange }: CanvasProps) {
   );
 
   /**
-   * Where a node ends up when the drag stops: whichever expanded container its
-   * centre lies in, innermost first, or the graph on screen if none.
+   * Where a node would land: whichever expanded container its centre lies in,
+   * innermost first, or the graph on screen if none. Returns null when the drop
+   * would not change which graph the node belongs to.
    *
-   * A group cannot be dropped into itself or into anything it contains, and a
-   * drop that does not change graph is left to the ordinary move path.
+   * Shared by the drag and the drop so the highlight cannot promise one thing
+   * and the release do another.
    */
-  const onNodeDragStop = useCallback<OnNodeDrag<MindGraphFlowNode>>(
-    (_event, node) => {
-      endGesture();
-
+  const findDropTarget = useCallback(
+    (node: MindGraphFlowNode) => {
       const ref = parseRef(node.id);
-      const positions = absolutePositions(graph, basePath, expanded);
-      const origin = positions.get(node.id);
-      if (!origin) return;
+      const boxes = containerBoxes(graph, basePath, expanded);
 
-      // The node's own box, measured where React Flow last drew it.
+      // Taken from the node React Flow just handed us, not from the store: mid
+      // drag the store lags behind, and a stale position would put the node
+      // outside every container until the moment it was released.
+      const parentBox =
+        node.parentId === undefined
+          ? undefined
+          : boxes.find((box) => box.key === node.parentId);
+      const origin = parentBox
+        ? {
+            x: parentBox.x + GROUP_PADDING + node.position.x,
+            y: parentBox.y + GROUP_HEADER + node.position.y,
+          }
+        : { x: node.position.x, y: node.position.y };
+
       const width = node.measured?.width ?? 200;
       const height = node.measured?.height ?? 60;
       const centre = { x: origin.x + width / 2, y: origin.y + height / 2 };
+      const self = [...ref.path, ref.id].join("\u0000");
 
-      const target = containerBoxes(graph, basePath, expanded)
+      const container = boxes
         .filter((box) => {
           // Never into itself, and never into its own descendants.
-          if (box.path.slice(0, ref.path.length + 1).join("\u0000") ===
-              [...ref.path, ref.id].join("\u0000")) {
-            return false;
-          }
+          if (box.path.slice(0, ref.path.length + 1).join("\u0000") === self) return false;
           return (
             centre.x >= box.x &&
             centre.x <= box.x + box.width &&
@@ -247,12 +257,35 @@ export function Canvas({ onSelectionChange }: CanvasProps) {
         // Innermost container wins.
         .at(-1);
 
-      const toPath = target ? target.path : basePath;
-      if (toPath.join("\u0000") === ref.path.join("\u0000")) return;
+      const toPath = container ? container.path : basePath;
+      if (toPath.join("\u0000") === ref.path.join("\u0000")) return null;
 
-      // Absolute position translated into the destination graph's coordinates.
-      const destinationOrigin = target
-        ? { x: target.x + GROUP_PADDING, y: target.y + GROUP_HEADER }
+      return { ref, origin, container, toPath };
+    },
+    [graph, basePath, expanded],
+  );
+
+  const onNodeDrag = useCallback<OnNodeDrag<MindGraphFlowNode>>(
+    (_event, node) => {
+      const found = findDropTarget(node);
+      // `null` covers both "no container" and "already lives there", so
+      // dragging a node around inside its own group highlights nothing.
+      setDropTargetKey(found?.container?.key ?? null);
+    },
+    [findDropTarget],
+  );
+
+  const onNodeDragStop = useCallback<OnNodeDrag<MindGraphFlowNode>>(
+    (_event, node) => {
+      endGesture();
+      setDropTargetKey(null);
+
+      const found = findDropTarget(node);
+      if (!found) return;
+
+      const { ref, origin, container, toPath } = found;
+      const destinationOrigin = container
+        ? { x: container.x + GROUP_PADDING, y: container.y + GROUP_HEADER }
         : { x: 0, y: 0 };
 
       // A drop is decided by the node's centre, so its edge can still fall
@@ -262,11 +295,11 @@ export function Canvas({ onSelectionChange }: CanvasProps) {
         x: Math.round(origin.x - destinationOrigin.x),
         y: Math.round(origin.y - destinationOrigin.y),
       };
-      const position = target ? { x: Math.max(0, local.x), y: Math.max(0, local.y) } : local;
+      const position = container ? { x: Math.max(0, local.x), y: Math.max(0, local.y) } : local;
 
       moveNodeToGraph({ nodeId: ref.id, from: ref.path, to: toPath, position });
     },
-    [endGesture, graph, basePath, expanded, moveNodeToGraph],
+    [endGesture, findDropTarget, moveNodeToGraph],
   );
 
   /** Double-clicking a group opens or closes it in place. */
@@ -277,13 +310,25 @@ export function Canvas({ onSelectionChange }: CanvasProps) {
     [toggleExpanded],
   );
 
+  const renderedNodes = useMemo(
+    () =>
+      dropTargetKey === null
+        ? nodes
+        : nodes.map((node) =>
+            node.id === dropTargetKey
+              ? { ...node, data: { ...node.data, dropTarget: true } }
+              : node,
+          ),
+    [nodes, dropTargetKey],
+  );
+
   return (
     <div className="canvas">
       <ReactFlow
         // Remounting per graph gives each sub-graph its own camera rather than
         // carrying one viewport across the whole document.
         key={refKey(basePath, graph.id)}
-        nodes={nodes}
+        nodes={renderedNodes}
         edges={edges}
         nodeTypes={nodeTypes}
         onNodesChange={onNodesChange}
@@ -292,6 +337,7 @@ export function Canvas({ onSelectionChange }: CanvasProps) {
         isValidConnection={isValidConnection}
         onDelete={onDelete}
         onNodeDoubleClick={onNodeDoubleClick}
+        onNodeDrag={onNodeDrag}
         onNodeDragStop={onNodeDragStop}
         onMoveEnd={(_event, viewport) => setViewport(viewport)}
         defaultViewport={graph.viewport}

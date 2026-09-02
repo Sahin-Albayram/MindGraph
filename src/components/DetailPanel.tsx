@@ -14,7 +14,7 @@ import { useGraphStore, type ElementRef } from "../store/graphStore.js";
 import { useViewStore } from "../store/viewStore.js";
 import type { Edge, Graph, Node } from "../types/graph.js";
 import type { Selection } from "./Canvas.js";
-import { parseRef, refKey } from "./flatten.js";
+import { footprintOf, parseRef, refKey, GROUP_PADDING } from "./flatten.js";
 import { createIdeaNode } from "../utils/factories.js";
 import { resolveGraph } from "../utils/graphPath.js";
 
@@ -153,11 +153,23 @@ function NestingControls({ node, nodeRef }: { node: Node; nodeRef: ElementRef })
   const count = node.data.subgraph?.nodes.length ?? 0;
   const insidePath = [...nodeRef.path, nodeRef.id];
 
-  /** Places a new idea inside the group, opening it so the result is visible. */
+  /**
+   * Places a new idea inside the group, below whatever is already there, and
+   * opens the group so the result is visible. Stacking it on top of existing
+   * content — including an expanded sub-group, which is far taller than a card
+   * — would land it somewhere the user has to dig it out of.
+   */
   const addInside = () => {
-    const existing = node.data.subgraph?.nodes.length ?? 0;
-    // Stagger additions so a run of them does not stack into one pile.
-    const position = { x: 24 + (existing % 3) * 30, y: 24 + existing * 34 };
+    const siblings = node.data.subgraph?.nodes ?? [];
+    const bottom = siblings.reduce((lowest, sibling) => {
+      const footprint = footprintOf(sibling, insidePath, expanded);
+      return Math.max(lowest, sibling.position.y + footprint.height);
+    }, 0);
+
+    const position = {
+      x: GROUP_PADDING,
+      y: siblings.length === 0 ? GROUP_PADDING : bottom + GROUP_PADDING,
+    };
     addNode(createIdeaNode({ position }), insidePath);
     setExpanded(key, true);
   };

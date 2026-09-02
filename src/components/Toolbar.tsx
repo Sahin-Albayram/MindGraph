@@ -11,6 +11,8 @@ import {
 import { createCompoundNode, createIdeaNode } from "../utils/factories.js";
 import { createSampleGraph } from "../utils/sampleGraph.js";
 import { documentLabel } from "../store/documentActions.js";
+import { useViewStore } from "../store/viewStore.js";
+import { containerBoxes, GROUP_HEADER, GROUP_PADDING } from "./flatten.js";
 
 import "./toolbar.css";
 
@@ -27,22 +29,57 @@ export function Toolbar() {
   const canUndo = useGraphStore(selectCanUndo);
   const canRedo = useGraphStore(selectCanRedo);
   const addNode = useGraphStore((state) => state.addNode);
+  const basePath = useGraphStore((state) => state.path);
+  const expanded = useViewStore((state) => state.expanded);
   const undo = useGraphStore((state) => state.undo);
   const redo = useGraphStore((state) => state.redo);
   const loadDocument = useGraphStore((state) => state.loadDocument);
 
   /**
-   * New nodes land in the middle of what the user is looking at, offset a
-   * little each time so a run of additions does not stack into one pile.
+   * Where a new node goes: the middle of what the user is actually looking at,
+   * and *into* an expanded group if that is what is under the middle.
+   *
+   * Dropping it on top of a container it did not belong to was the confusing
+   * case — it looked inside the group while the document said otherwise.
    */
-  const nextPosition = useCallback(() => {
-    const centre = screenToFlowPosition({
-      x: window.innerWidth / 2,
-      y: window.innerHeight / 2,
-    });
+  const nextPlacement = useCallback(() => {
+    // The canvas is not the window: the detail panel takes 320px off the right,
+    // and the toolbar and breadcrumbs take a strip off the top.
+    const canvas = document.querySelector(".canvas")?.getBoundingClientRect();
+    const centre = screenToFlowPosition(
+      canvas
+        ? { x: canvas.x + canvas.width / 2, y: canvas.y + canvas.height / 2 }
+        : { x: window.innerWidth / 2, y: window.innerHeight / 2 },
+    );
+
+    const container = containerBoxes(graph, basePath, expanded)
+      .filter(
+        (box) =>
+          centre.x >= box.x &&
+          centre.x <= box.x + box.width &&
+          centre.y >= box.y &&
+          centre.y <= box.y + box.height,
+      )
+      // Innermost container wins, as it does for a drop.
+      .at(-1);
+
+    // Offset so the new node is centred on the point, then staggered a little
+    // so a run of additions does not stack into one pile.
     const jitter = (graph.nodes.length % 6) * 28;
-    return { x: Math.round(centre.x - 90 + jitter), y: Math.round(centre.y - 28 + jitter) };
-  }, [graph.nodes.length, screenToFlowPosition]);
+    const target = { x: centre.x - 90 + jitter, y: centre.y - 28 + jitter };
+
+    if (!container) {
+      return { path: basePath, position: { x: Math.round(target.x), y: Math.round(target.y) } };
+    }
+
+    return {
+      path: container.path,
+      position: {
+        x: Math.max(0, Math.round(target.x - (container.x + GROUP_PADDING))),
+        y: Math.max(0, Math.round(target.y - (container.y + GROUP_HEADER))),
+      },
+    };
+  }, [graph, basePath, expanded, screenToFlowPosition]);
 
   return (
     <header className="toolbar">
@@ -54,12 +91,21 @@ export function Toolbar() {
       </div>
 
       <div className="toolbar-actions">
-        <button type="button" onClick={() => addNode(createIdeaNode({ position: nextPosition() }))}>
+        <button
+          type="button"
+          onClick={() => {
+            const { path, position } = nextPlacement();
+            addNode(createIdeaNode({ position }), path);
+          }}
+        >
           Add idea
         </button>
         <button
           type="button"
-          onClick={() => addNode(createCompoundNode({ position: nextPosition() }))}
+          onClick={() => {
+            const { path, position } = nextPlacement();
+            addNode(createCompoundNode({ position }), path);
+          }}
         >
           Add group
         </button>
