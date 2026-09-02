@@ -111,6 +111,44 @@ function EdgeEditor({ edge }: { edge: Edge }) {
   );
 }
 
+/**
+ * Turning an idea into a group, and opening one. Both are offered here because
+ * the canvas affordance — double-click — is not discoverable on its own.
+ */
+function NestingControls({ node }: { node: Node }) {
+  const convertToCompound = useGraphStore((state) => state.convertToCompound);
+  const enterSubgraph = useGraphStore((state) => state.enterSubgraph);
+
+  if (node.type !== "compound") {
+    return (
+      <div className="panel-nesting">
+        <button type="button" className="panel-action" onClick={() => convertToCompound(node.id)}>
+          Turn into a group
+        </button>
+        <p className="panel-hint">
+          A group holds a whole graph of its own, so this idea can be explored
+          without crowding the canvas it sits on.
+        </p>
+      </div>
+    );
+  }
+
+  const count = node.data.subgraph?.nodes.length ?? 0;
+
+  return (
+    <div className="panel-nesting">
+      <button type="button" className="panel-action" onClick={() => enterSubgraph(node.id)}>
+        Open group
+      </button>
+      <p className="panel-hint">
+        {count === 0
+          ? "This group is empty. Open it to start building inside."
+          : `Contains ${count} node${count === 1 ? "" : "s"}. Double-clicking the group opens it too.`}
+      </p>
+    </div>
+  );
+}
+
 interface DetailPanelProps {
   selection: Selection;
 }
@@ -156,6 +194,8 @@ export function DetailPanel({ selection }: DetailPanelProps) {
   return (
     <aside className="panel">
       <div className="panel-kind">{node.type === "compound" ? "Group" : "Idea"}</div>
+
+      <NestingControls node={node} />
 
       <label className="panel-label" htmlFor="node-title">
         Title

@@ -19,6 +19,12 @@ export function selectCurrentGraph(state: GraphState): Graph {
   return resolveGraph(state.root, state.path) ?? state.root;
 }
 
+/**
+ * Builds a fresh array on every call, so it must NOT be passed straight to
+ * `useGraphStore` — a selector that never returns the same reference re-renders
+ * without end. Components select `root` and `path` and memoize; this exists for
+ * tests and non-reactive callers.
+ */
 export function selectBreadcrumbs(state: GraphState): Breadcrumb[] {
   return breadcrumbs(state.root, state.path);
 }

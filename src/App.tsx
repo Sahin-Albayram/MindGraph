@@ -1,6 +1,7 @@
 import { ReactFlowProvider } from "@xyflow/react";
 import { useEffect, useState } from "react";
 
+import { Breadcrumbs } from "./components/Breadcrumbs.js";
 import { Canvas, type Selection } from "./components/Canvas.js";
 import { DetailPanel } from "./components/DetailPanel.js";
 import { Toolbar } from "./components/Toolbar.js";
@@ -21,18 +22,27 @@ import "./App.css";
  * this is the renderer; Step 8 moves these onto the application menu, where
  * Electron's accelerator strings handle the platform difference.
  */
-function useUndoShortcuts(): void {
+function useKeyboardShortcuts(): void {
   const undo = useGraphStore((state) => state.undo);
   const redo = useGraphStore((state) => state.redo);
+  const exitSubgraph = useGraphStore((state) => state.exitSubgraph);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      if (!(event.metaKey || event.ctrlKey) || event.key.toLowerCase() !== "z") return;
+      if (!(event.metaKey || event.ctrlKey)) return;
 
-      // Let a focused text field keep its own undo stack.
+      // Let a focused text field keep its own editing keys.
       const target = event.target as HTMLElement | null;
       if (target?.isContentEditable || /^(input|textarea)$/i.test(target?.tagName ?? "")) return;
 
+      // Leaving a sub-graph, spelled the way Finder spells "enclosing folder".
+      if (event.key === "ArrowUp") {
+        event.preventDefault();
+        exitSubgraph();
+        return;
+      }
+
+      if (event.key.toLowerCase() !== "z") return;
       event.preventDefault();
       if (event.shiftKey) redo();
       else undo();
@@ -40,7 +50,7 @@ function useUndoShortcuts(): void {
 
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [undo, redo]);
+  }, [undo, redo, exitSubgraph]);
 }
 
 /**
@@ -95,7 +105,7 @@ function useDocumentTitle(): void {
  * document store or the saved file.
  */
 function Workspace() {
-  useUndoShortcuts();
+  useKeyboardShortcuts();
   useMenuCommands();
   useDocumentTitle();
 
@@ -104,6 +114,7 @@ function Workspace() {
   return (
     <div className="app">
       <Toolbar />
+      <Breadcrumbs />
       <div className="workspace">
         <Canvas onSelectionChange={setSelection} />
         <DetailPanel selection={selection} />

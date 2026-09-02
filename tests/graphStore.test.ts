@@ -420,6 +420,112 @@ describe("nested sub-graph navigation", () => {
   });
 });
 
+describe("working several levels deep", () => {
+  /** Enters a new group named `title`, returning its node id. */
+  function enterNewGroup(title: string): string {
+    const group = createCompoundNode({ title, position: { x: 0, y: 0 } });
+    state().addNode(group);
+    state().enterSubgraph(group.id);
+    return group.id;
+  }
+
+  it("edits at three levels and round-trips the whole tree", () => {
+    addIdea("Top level");
+    enterNewGroup("Level one");
+    addIdea("Inside one");
+    enterNewGroup("Level two");
+    const deepA = addIdea("Inside two");
+    const deepB = addIdea("Also inside two", { x: 200, y: 0 });
+    state().connect(deepA, deepB, { label: "then" });
+
+    expect(state().path).toHaveLength(2);
+
+    const parsed = deserialize(serialize(state().root));
+    if (!parsed.ok) throw new Error(parsed.errors.join("\n"));
+    expect(parsed.file.graph).toEqual(state().root);
+
+    // Walk the reloaded document back down the same path.
+    let cursor = parsed.file.graph;
+    for (const nodeId of state().path) {
+      cursor = cursor.nodes.find((node) => node.id === nodeId)!.data.subgraph!;
+    }
+    expect(cursor.nodes.map((node) => node.data.title)).toEqual([
+      "Inside two",
+      "Also inside two",
+    ]);
+    expect(cursor.edges[0]!.label).toBe("then");
+  });
+
+  it("returns to the parent graph without disturbing it", () => {
+    const topId = addIdea("Top level");
+    const groupId = enterNewGroup("Group");
+    addIdea("Child");
+
+    state().exitSubgraph();
+
+    expect(state().path).toEqual([]);
+    expect(selectCurrentGraph(state()).nodes.map((node) => node.id)).toEqual([topId, groupId]);
+  });
+
+  it("counts what a group holds, from outside it", () => {
+    const groupId = enterNewGroup("Group");
+    addIdea("One");
+    addIdea("Two");
+    state().navigateTo(0);
+
+    const group = selectCurrentGraph(state()).nodes.find((node) => node.id === groupId)!;
+    expect(group.data.subgraph!.nodes).toHaveLength(2);
+  });
+
+  it("deleting a group takes its whole subtree with it", () => {
+    const groupId = enterNewGroup("Doomed");
+    addIdea("Inside");
+    state().navigateTo(0);
+
+    state().deleteElements({ nodeIds: [groupId] });
+
+    expect(selectCurrentGraph(state()).nodes).toEqual([]);
+    const parsed = deserialize(serialize(state().root));
+    expect(parsed.ok).toBe(true);
+  });
+
+  it("retreats to safety when the graph being viewed is deleted from above", () => {
+    const groupId = enterNewGroup("Group");
+    addIdea("Inside");
+    state().navigateTo(0);
+    state().enterSubgraph(groupId);
+    expect(state().path).toEqual([groupId]);
+
+    // Delete the group while its own contents are on screen.
+    state().navigateTo(0);
+    state().deleteElements({ nodeIds: [groupId] });
+    expect(state().path).toEqual([]);
+  });
+
+  it("converts an idea into a group that can then be entered and filled", () => {
+    const id = addIdea("Becomes a group");
+    state().convertToCompound(id);
+    state().enterSubgraph(id);
+    addIdea("Now inside");
+
+    expect(state().path).toEqual([id]);
+    state().exitSubgraph();
+
+    const converted = selectCurrentGraph(state()).nodes[0]!;
+    expect(converted.type).toBe("compound");
+    expect(converted.data.subgraph!.nodes.map((n) => n.data.title)).toEqual(["Now inside"]);
+
+    const parsed = deserialize(serialize(state().root));
+    expect(parsed.ok).toBe(true);
+  });
+
+  it("names a converted group after the idea it came from", () => {
+    const id = addIdea("Distribution");
+    state().convertToCompound(id);
+    expect(selectCurrentGraph(state()).nodes[0]!.data.subgraph!.name).toBe("Distribution");
+  });
+});
+
 describe("undo and redo", () => {
   it("reverses and replays an edit", () => {
     addIdea("First");
@@ -598,6 +704,39 @@ describe("changes that must not enter history", () => {
     state().enterSubgraph(group.id);
     state().exitSubgraph();
     expect(state().past.length).toBe(historyBefore);
+  });
+
+  it("does not make a saved document look unsaved just by moving the camera", () => {
+    addIdea("Node");
+    state().markSaved("/tmp/doc.mindgraph");
+    expect(selectIsDirty(state())).toBe(false);
+
+    state().setViewport({ x: 120, y: 40, zoom: 1.5 });
+    state().enterSubgraph("nope");
+
+    // The camera is part of the document, but looking around is not editing.
+    // A prompt the user learns to dismiss is worse than no prompt at all.
+    expect(selectIsDirty(state())).toBe(false);
+  });
+
+  it("leaves an already-dirty document dirty when the camera moves", () => {
+    addIdea("Node");
+    expect(selectIsDirty(state())).toBe(true);
+
+    state().setViewport({ x: 10, y: 10, zoom: 2 });
+    expect(selectIsDirty(state())).toBe(true);
+  });
+
+  it("reports clean after undoing an edit made either side of a camera move", () => {
+    addIdea("Saved");
+    state().markSaved("/tmp/doc.mindgraph");
+
+    state().setViewport({ x: 50, y: 50, zoom: 1.2 });
+    addIdea("Unsaved");
+    expect(selectIsDirty(state())).toBe(true);
+
+    state().undo();
+    expect(selectIsDirty(state())).toBe(false);
   });
 
   it("keeps the viewport per sub-graph", () => {

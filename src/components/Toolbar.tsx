@@ -19,7 +19,10 @@ export function Toolbar() {
 
   const graph = useGraphStore(selectCurrentGraph);
   const isDirty = useGraphStore(selectIsDirty);
-  // Once saved, the file's name is what the user recognises the document by.
+  // The toolbar names the *document*; the breadcrumb bar says where inside it
+  // you are. Using the current sub-graph's name here would duplicate the
+  // breadcrumb and lose the document's identity while nested.
+  const documentName = useGraphStore((state) => state.root.name);
   const filePath = useGraphStore((state) => state.filePath);
   const canUndo = useGraphStore(selectCanUndo);
   const canRedo = useGraphStore(selectCanRedo);
@@ -44,7 +47,9 @@ export function Toolbar() {
   return (
     <header className="toolbar">
       <div className="toolbar-title">
-        <span className="toolbar-name">{filePath === null ? graph.name : documentLabel()}</span>
+        <span className="toolbar-name">
+          {filePath === null ? documentName : documentLabel()}
+        </span>
         {isDirty && <span className="toolbar-dirty" title="Unsaved changes" />}
       </div>
 

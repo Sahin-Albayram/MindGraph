@@ -150,6 +150,10 @@ symptoms that look unrelated to the cause:
   the store's `deleteElements` applies both in a single transaction.
 - **`nodeTypes` must be module-scope.** A new object identity each render
   re-mounts every node.
+- **Never pass an allocating selector to `useGraphStore`.** A selector that
+  builds a new array or object each call (`selectBreadcrumbs`) re-renders
+  forever — React reports it as "getSnapshot should be cached". Select the
+  stable pieces (`root`, `path`) and combine them in `useMemo`.
 - Edges render only after their endpoint nodes have been measured, so counting
   `.react-flow__edge` immediately after a state change under-reports. Trust the
   store, or wait for a paint.
@@ -221,5 +225,8 @@ Tracked in spec section 9.
   tentative. *Done.*
 - **Step 6** — save/open `.mindgraph` files, with unsaved-work guards. *Done.*
   Work now survives quitting.
-- **Step 7** — compound-node drill-down. *Next.*
-- **Step 8** — polish, minimap, installers.
+- **Step 7** — compound-node drill-down: double-click to enter, breadcrumbs
+  back out, convert an idea into a group. *Done.* Phase 1 of the spec is
+  complete.
+- **Step 8** — polish, minimap, installers. *Next.* Also move the renderer's
+  keyboard shortcuts onto the application menu.

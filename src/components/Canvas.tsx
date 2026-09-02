@@ -32,6 +32,7 @@ import {
   type NodeChange,
   type NodeTypes,
 } from "@xyflow/react";
+import type React from "react";
 import { useCallback, useEffect, useState } from "react";
 
 import type { Edge, Node } from "../types/graph.js";
@@ -91,6 +92,7 @@ export function Canvas({ onSelectionChange }: CanvasProps) {
   const moveNode = useGraphStore((state) => state.moveNode);
   const deleteElements = useGraphStore((state) => state.deleteElements);
   const connect = useGraphStore((state) => state.connect);
+  const enterSubgraph = useGraphStore((state) => state.enterSubgraph);
   const setViewport = useGraphStore((state) => state.setViewport);
   const endGesture = useGraphStore((state) => state.endGesture);
 
@@ -152,6 +154,18 @@ export function Canvas({ onSelectionChange }: CanvasProps) {
       return !graph.edges.some((edge) => edge.source === source && edge.target === target);
     },
     [graph.edges],
+  );
+
+  /**
+   * Double-clicking a group opens it: the canvas swaps to that node's own
+   * graph. This is a navigation change, not a document edit — the store keeps
+   * one tree and simply points at a different part of it.
+   */
+  const onNodeDoubleClick = useCallback(
+    (_event: React.MouseEvent, node: MindGraphFlowNode) => {
+      if (node.type === "compound") enterSubgraph(node.id);
+    },
+    [enterSubgraph],
   );
 
   const onConnect = useCallback(
@@ -219,6 +233,7 @@ export function Canvas({ onSelectionChange }: CanvasProps) {
         onConnect={onConnect}
         isValidConnection={isValidConnection}
         onDelete={onDelete}
+        onNodeDoubleClick={onNodeDoubleClick}
         onNodeDragStop={endGesture}
         onMoveEnd={(_event, viewport) => setViewport(viewport)}
         defaultViewport={graph.viewport}

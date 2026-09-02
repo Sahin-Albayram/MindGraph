@@ -176,14 +176,25 @@ export const useGraphStore = create<GraphStore>()((set, get) => {
     });
   }
 
-  /** Changes the visible graph or camera without touching history. */
+  /**
+   * Changes the visible graph or camera without touching history.
+   *
+   * The camera lives in the document, so moving it does rewrite `root`. It must
+   * not, however, make a saved document look unsaved: panning around a file and
+   * closing it should not raise "do you want to save?", and a prompt the user
+   * learns to dismiss is worse than no prompt at all. So when the document was
+   * clean, `savedRoot` moves with it and stays clean.
+   */
   function editSilently(recipe: (graph: Graph) => void): void {
     set((state) => {
       const next = produce(state.root, (draft) => {
         const target = resolveGraph(draft, state.path);
         if (target) recipe(target);
       });
-      return next === state.root ? {} : { root: next };
+      if (next === state.root) return {};
+
+      const wasClean = state.root === state.savedRoot;
+      return wasClean ? { root: next, savedRoot: next } : { root: next };
     });
   }
 
