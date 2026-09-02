@@ -45,6 +45,14 @@ export type NodeDataPatch = {
   [K in "title" | "description" | "color" | "tags"]?: NodeData[K] | undefined;
 };
 
+/**
+ * The editable properties of an edge. Endpoints are not among them: re-pointing
+ * an edge is a structural change, not a property edit.
+ */
+export type EdgePatch = {
+  [K in "label" | "style"]?: Edge[K] | undefined;
+};
+
 export interface GraphState {
   /** The whole document. Never replaced except through the actions below. */
   root: Graph;
@@ -89,7 +97,8 @@ export interface GraphActions {
   // Edge edits.
   connect: (source: string, target: string, options?: { label?: string; style?: Edge["style"] }) => void;
   addEdge: (edge: Edge) => void;
-  updateEdge: (edgeId: string, patch: Partial<Omit<Edge, "id">>) => void;
+  /** `options.coalesce` groups a burst of typing, exactly as for node data. */
+  updateEdge: (edgeId: string, patch: EdgePatch, options?: { coalesce?: string }) => void;
   removeEdge: (edgeId: string) => void;
   /**
    * Removes nodes and edges as one transaction, so a single delete gesture
@@ -277,6 +286,11 @@ export const useGraphStore = create<GraphStore>()((set, get) => {
 
     connect: (source, target, options) => {
       edit((graph) => {
+        // A node related to itself says nothing, and renders as a stub. Files
+        // containing one still load — the reader stays liberal, the editor
+        // conservative — but the editor will not create one.
+        if (source === target) return;
+
         const hasSource = graph.nodes.some((node) => node.id === source);
         const hasTarget = graph.nodes.some((node) => node.id === target);
         if (!hasSource || !hasTarget) return;
@@ -296,12 +310,25 @@ export const useGraphStore = create<GraphStore>()((set, get) => {
       });
     },
 
-    updateEdge: (edgeId, patch) => {
-      edit((graph) => {
-        const edge = graph.edges.find((candidate) => candidate.id === edgeId);
-        if (!edge) return;
-        Object.assign(edge, patch);
-      });
+    updateEdge: (edgeId, patch, options) => {
+      edit(
+        (graph) => {
+          const edge = graph.edges.find((candidate) => candidate.id === edgeId);
+          if (!edge) return;
+
+          const record = edge as unknown as Record<string, unknown>;
+          for (const [key, value] of Object.entries(patch)) {
+            if (value === undefined) {
+              if (key in record) delete record[key];
+            } else if (record[key] !== value) {
+              record[key] = value;
+            }
+          }
+        },
+        options?.coalesce === undefined
+          ? undefined
+          : { coalesceKey: `edge:${edgeId}:${options.coalesce}` },
+      );
     },
 
     removeEdge: (edgeId) => {

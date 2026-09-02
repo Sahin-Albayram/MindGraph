@@ -22,10 +22,13 @@ import {
   BackgroundVariant,
   Controls,
   ReactFlow,
+  MarkerType,
   applyEdgeChanges,
   applyNodeChanges,
+  type Connection,
   type Edge as FlowEdge,
   type EdgeChange,
+  type IsValidConnection,
   type NodeChange,
   type NodeTypes,
 } from "@xyflow/react";
@@ -63,6 +66,8 @@ function toFlowEdge(edge: Edge): FlowEdge {
     id: edge.id,
     source: edge.source,
     target: edge.target,
+    // The graph is directed, so every edge states which way it points.
+    markerEnd: { type: MarkerType.ArrowClosed, width: 18, height: 18 },
     ...(edge.label !== undefined ? { label: edge.label } : {}),
     // Spread conditionally: `exactOptionalPropertyTypes` rejects an explicit
     // `undefined` for an optional property.
@@ -70,16 +75,22 @@ function toFlowEdge(edge: Edge): FlowEdge {
   };
 }
 
+export interface Selection {
+  nodeIds: readonly string[];
+  edgeIds: readonly string[];
+}
+
 export interface CanvasProps {
-  /** Reports the selected node ids upward. Selection is view state: it lives
+  /** Reports the current selection upward. Selection is view state: it lives
    *  here, in React Flow's own copy, and never reaches the store or the file. */
-  onSelectionChange?: ((nodeIds: readonly string[]) => void) | undefined;
+  onSelectionChange?: ((selection: Selection) => void) | undefined;
 }
 
 export function Canvas({ onSelectionChange }: CanvasProps) {
   const graph = useGraphStore(selectCurrentGraph);
   const moveNode = useGraphStore((state) => state.moveNode);
   const deleteElements = useGraphStore((state) => state.deleteElements);
+  const connect = useGraphStore((state) => state.connect);
   const setViewport = useGraphStore((state) => state.setViewport);
   const endGesture = useGraphStore((state) => state.endGesture);
 
@@ -112,16 +123,44 @@ export function Canvas({ onSelectionChange }: CanvasProps) {
     });
   }, [graph.edges]);
 
-  // Derived as a string so the effect below fires on a genuine selection
-  // change rather than on every new array identity.
-  const selectedKey = nodes
+  // Derived as strings so the effect below fires on a genuine selection change
+  // rather than on every new array identity.
+  const selectedNodeKey = nodes
     .filter((node) => node.selected)
     .map((node) => node.id)
     .join("\u0000");
+  const selectedEdgeKey = edges
+    .filter((edge) => edge.selected)
+    .map((edge) => edge.id)
+    .join("\u0000");
 
   useEffect(() => {
-    onSelectionChange?.(selectedKey === "" ? [] : selectedKey.split("\u0000"));
-  }, [selectedKey, onSelectionChange]);
+    onSelectionChange?.({
+      nodeIds: selectedNodeKey === "" ? [] : selectedNodeKey.split("\u0000"),
+      edgeIds: selectedEdgeKey === "" ? [] : selectedEdgeKey.split("\u0000"),
+    });
+  }, [selectedNodeKey, selectedEdgeKey, onSelectionChange]);
+
+  /**
+   * Rejects a connection before the user commits to it, so an invalid drop
+   * shows as a refusal rather than appearing to work and being discarded. The
+   * store enforces the same rules; this only surfaces them in the UI.
+   */
+  const isValidConnection = useCallback<IsValidConnection>(
+    ({ source, target }) => {
+      if (source === null || target === null || source === target) return false;
+      return !graph.edges.some((edge) => edge.source === source && edge.target === target);
+    },
+    [graph.edges],
+  );
+
+  const onConnect = useCallback(
+    ({ source, target }: Connection) => {
+      if (source === null || target === null) return;
+      connect(source, target);
+    },
+    [connect],
+  );
 
   const onNodesChange = useCallback(
     (changes: NodeChange<MindGraphFlowNode>[]) => {
@@ -177,6 +216,8 @@ export function Canvas({ onSelectionChange }: CanvasProps) {
         nodeTypes={nodeTypes}
         onNodesChange={onNodesChange}
         onEdgesChange={onEdgesChange}
+        onConnect={onConnect}
+        isValidConnection={isValidConnection}
         onDelete={onDelete}
         onNodeDragStop={endGesture}
         onMoveEnd={(_event, viewport) => setViewport(viewport)}

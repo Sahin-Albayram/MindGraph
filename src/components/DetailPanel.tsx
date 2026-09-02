@@ -12,7 +12,8 @@ import Markdown from "react-markdown";
 
 import { useGraphStore } from "../store/graphStore.js";
 import { selectCurrentGraph } from "../store/selectors.js";
-import type { Node } from "../types/graph.js";
+import type { Edge, Node } from "../types/graph.js";
+import type { Selection } from "./Canvas.js";
 
 import "./detailPanel.css";
 
@@ -49,30 +50,105 @@ function useCoalescedEdit(nodeId: string | undefined) {
   return { edit, endBurst };
 }
 
-interface DetailPanelProps {
-  selectedIds: readonly string[];
+/** Editor for a single edge: its label and whether it reads as tentative. */
+function EdgeEditor({ edge }: { edge: Edge }) {
+  const updateEdge = useGraphStore((state) => state.updateEdge);
+  const endGesture = useGraphStore((state) => state.endGesture);
+  const idleTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+
+  const endBurst = useCallback(() => {
+    clearTimeout(idleTimer.current);
+    endGesture();
+  }, [endGesture]);
+
+  useEffect(() => endBurst, [endBurst, edge.id]);
+
+  return (
+    <aside className="panel">
+      <div className="panel-kind">Connection</div>
+
+      <label className="panel-label" htmlFor="edge-label">
+        Label
+      </label>
+      <input
+        id="edge-label"
+        className="panel-input"
+        value={edge.label ?? ""}
+        placeholder="How are these related?"
+        onChange={(event) => {
+          const value = event.target.value;
+          updateEdge(edge.id, { label: value === "" ? undefined : value }, { coalesce: "label" });
+          clearTimeout(idleTimer.current);
+          idleTimer.current = setTimeout(endGesture, TYPING_IDLE_MS);
+        }}
+        onBlur={endBurst}
+      />
+
+      <div className="panel-label-row">
+        <span className="panel-label">Strength</span>
+        <div className="panel-toggle">
+          <button
+            type="button"
+            className={edge.style === "dashed" ? "" : "active"}
+            onClick={() => updateEdge(edge.id, { style: undefined })}
+          >
+            Solid
+          </button>
+          <button
+            type="button"
+            className={edge.style === "dashed" ? "active" : ""}
+            onClick={() => updateEdge(edge.id, { style: "dashed" })}
+          >
+            Tentative
+          </button>
+        </div>
+      </div>
+      <p className="panel-hint">
+        A tentative connection is drawn dashed — a link you suspect but have not
+        settled.
+      </p>
+    </aside>
+  );
 }
 
-export function DetailPanel({ selectedIds }: DetailPanelProps) {
-  const nodes = useGraphStore((state) => selectCurrentGraph(state).nodes);
+interface DetailPanelProps {
+  selection: Selection;
+}
+
+export function DetailPanel({ selection }: DetailPanelProps) {
+  const graph = useGraphStore(selectCurrentGraph);
   const [showPreview, setShowPreview] = useState(false);
 
-  const selectedId = selectedIds.length === 1 ? selectedIds[0] : undefined;
-  const node: Node | undefined = nodes.find((candidate) => candidate.id === selectedId);
+  const { nodeIds, edgeIds } = selection;
+  const selectedId = nodeIds.length === 1 && edgeIds.length === 0 ? nodeIds[0] : undefined;
+  const node: Node | undefined = graph.nodes.find((candidate) => candidate.id === selectedId);
+
+  // Hooks must run unconditionally, so this sits above every early return.
   const { edit, endBurst } = useCoalescedEdit(node?.id);
 
-  if (selectedIds.length > 1) {
+  const total = nodeIds.length + edgeIds.length;
+
+  if (total > 1) {
+    const parts = [
+      nodeIds.length > 0 ? `${nodeIds.length} node${nodeIds.length === 1 ? "" : "s"}` : null,
+      edgeIds.length > 0
+        ? `${edgeIds.length} connection${edgeIds.length === 1 ? "" : "s"}`
+        : null,
+    ].filter(Boolean);
     return (
       <aside className="panel">
-        <p className="panel-empty">{selectedIds.length} nodes selected</p>
+        <p className="panel-empty">{parts.join(" and ")} selected</p>
       </aside>
     );
   }
 
   if (!node) {
+    const edge = edgeIds.length === 1 ? graph.edges.find((e) => e.id === edgeIds[0]) : undefined;
+    if (edge) return <EdgeEditor edge={edge} key={edge.id} />;
+
     return (
       <aside className="panel">
-        <p className="panel-empty">Select a node to edit it</p>
+        <p className="panel-empty">Select a node or connection to edit it</p>
       </aside>
     );
   }

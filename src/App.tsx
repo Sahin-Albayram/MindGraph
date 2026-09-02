@@ -1,7 +1,7 @@
 import { ReactFlowProvider } from "@xyflow/react";
 import { useEffect, useState } from "react";
 
-import { Canvas } from "./components/Canvas.js";
+import { Canvas, type Selection } from "./components/Canvas.js";
 import { DetailPanel } from "./components/DetailPanel.js";
 import { Toolbar } from "./components/Toolbar.js";
 import { useGraphStore } from "./store/graphStore.js";
@@ -43,14 +43,14 @@ function useUndoShortcuts(): void {
 function Workspace() {
   useUndoShortcuts();
 
-  const [selectedIds, setSelectedIds] = useState<readonly string[]>([]);
+  const [selection, setSelection] = useState<Selection>({ nodeIds: [], edgeIds: [] });
 
   return (
     <div className="app">
       <Toolbar />
       <div className="workspace">
-        <Canvas onSelectionChange={setSelectedIds} />
-        <DetailPanel selectedIds={selectedIds} />
+        <Canvas onSelectionChange={setSelection} />
+        <DetailPanel selection={selection} />
       </div>
     </div>
   );

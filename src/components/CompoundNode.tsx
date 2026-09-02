@@ -12,7 +12,7 @@ export function CompoundNode({ data, selected }: NodeProps<CompoundFlowNode>) {
 
   return (
     <div className={`node compound${selected ? " selected" : ""}`}>
-      <Handle type="target" position={Position.Left} className="node-handle" isConnectable={false} />
+      <Handle type="target" position={Position.Left} className="node-handle" />
 
       <div className="node-title">
         {data.color && <span className="node-swatch" style={{ background: data.color }} />}
@@ -31,7 +31,7 @@ export function CompoundNode({ data, selected }: NodeProps<CompoundFlowNode>) {
         {count === 0 ? "empty group" : `${count} node${count === 1 ? "" : "s"} inside`}
       </div>
 
-      <Handle type="source" position={Position.Right} className="node-handle" isConnectable={false} />
+      <Handle type="source" position={Position.Right} className="node-handle" />
     </div>
   );
 }

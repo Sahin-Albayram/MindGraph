@@ -108,6 +108,14 @@ describe("editing the graph on screen", () => {
     expect(selectCurrentGraph(state()).edges).toHaveLength(2);
   });
 
+  it("refuses to connect a node to itself", () => {
+    const a = addIdea("A");
+    const rootBefore = state().root;
+    state().connect(a, a);
+    expect(selectCurrentGraph(state()).edges).toEqual([]);
+    expect(state().root).toBe(rootBefore);
+  });
+
   it("removes edges attached to a deleted node, so none dangle", () => {
     const a = addIdea("A");
     const b = addIdea("B");
@@ -255,6 +263,74 @@ describe("editing node data from the detail panel", () => {
     const parsed = deserialize(serialize(state().root));
     if (!parsed.ok) throw new Error(parsed.errors.join("\n"));
     expect(parsed.file.graph.nodes[0]!.data.description).toBe("**bold** text");
+  });
+});
+
+describe("editing a connection", () => {
+  function connected(): string {
+    const a = addIdea("A");
+    const b = addIdea("B");
+    state().connect(a, b);
+    return selectCurrentGraph(state()).edges[0]!.id;
+  }
+
+  it("sets and clears a label", () => {
+    const edgeId = connected();
+
+    state().updateEdge(edgeId, { label: "supports" });
+    expect(selectCurrentGraph(state()).edges[0]!.label).toBe("supports");
+
+    state().updateEdge(edgeId, { label: undefined });
+    expect("label" in selectCurrentGraph(state()).edges[0]!).toBe(false);
+    expect(serialize(state().root)).not.toContain("label");
+  });
+
+  it("collapses a burst of label typing into one history entry", () => {
+    const edgeId = connected();
+    const historyBefore = state().past.length;
+
+    for (const text of ["s", "su", "sup", "supp", "supports"]) {
+      state().updateEdge(edgeId, { label: text }, { coalesce: "label" });
+    }
+    state().endGesture();
+
+    expect(state().past.length).toBe(historyBefore + 1);
+    expect(selectCurrentGraph(state()).edges[0]!.label).toBe("supports");
+  });
+
+  it("toggles between solid and tentative", () => {
+    const edgeId = connected();
+
+    state().updateEdge(edgeId, { style: "dashed" });
+    expect(selectCurrentGraph(state()).edges[0]!.style).toBe("dashed");
+
+    // Solid is the absence of a style, not a stored value.
+    state().updateEdge(edgeId, { style: undefined });
+    expect("style" in selectCurrentGraph(state()).edges[0]!).toBe(false);
+  });
+
+  it("ignores an edit that changes nothing", () => {
+    const edgeId = connected();
+    state().updateEdge(edgeId, { label: "same" });
+    const rootBefore = state().root;
+    state().updateEdge(edgeId, { label: "same" });
+    expect(state().root).toBe(rootBefore);
+  });
+
+  it("ignores an edit to an edge that does not exist", () => {
+    connected();
+    const rootBefore = state().root;
+    state().updateEdge("ghost", { label: "x" });
+    expect(state().root).toBe(rootBefore);
+  });
+
+  it("keeps the document valid after edge edits", () => {
+    const edgeId = connected();
+    state().updateEdge(edgeId, { label: "depends on", style: "dashed" });
+
+    const parsed = deserialize(serialize(state().root));
+    if (!parsed.ok) throw new Error(parsed.errors.join("\n"));
+    expect(parsed.file.graph.edges[0]).toMatchObject({ label: "depends on", style: "dashed" });
   });
 });
 

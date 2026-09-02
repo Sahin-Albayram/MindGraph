@@ -70,9 +70,15 @@ npm run typecheck # tsc --noEmit
   than one animation frame. Forgetting `endGesture()` merges consecutive drags
   of the same node into a single undo entry.
 - **Typing coalesces the same way.** `updateNodeData(id, patch, { coalesce:
-  "title" })` groups a burst of keystrokes into one undo entry; the detail panel
-  closes the burst on blur and after a short idle pause. Passing `undefined` for
-  a field removes it, so a cleared box leaves no empty string in the file.
+  "title" })` and `updateEdge(id, patch, { coalesce: "label" })` group a burst
+  of keystrokes into one undo entry; the detail panel closes the burst on blur
+  and after a short idle pause. Passing `undefined` for a field removes it, so a
+  cleared box leaves no empty string in the file — "solid" is likewise the
+  *absence* of `style`, not a stored value.
+- **The reader is liberal, the editor conservative.** `fileFormat.ts` accepts a
+  self-referencing edge, because an existing file must still open; `connect()`
+  refuses to create one. Keep that asymmetry in mind before "fixing" either
+  side to match the other.
 - Dirty state is `root !== savedRoot`, a reference comparison. It works because
   history holds the original objects, so undoing back to the saved state
   correctly reports clean. Do not replace it with a boolean flag.
@@ -182,7 +188,7 @@ Tracked in spec section 9.
 - **Step 2** — Zustand store: root graph + `GraphPath`, undo/redo, navigation. *Done.*
 - **Step 3** — React Flow canvas: add/drag/delete nodes, pan, zoom, undo/redo. *Done.*
 - **Step 4** — node detail panel: title + markdown description. *Done.*
-- **Step 5** — edges. *Next.* Handles are rendered but `isConnectable={false}`
-  until then.
-- **Step 6** — save/open. First build whose work survives quitting.
+- **Step 5** — edges: draw by dragging between handles, label them, mark them
+  tentative. *Done.*
+- **Step 6** — save/open. *Next.* First build whose work survives quitting.
 - **Step 7** — compound-node drill-down. **Step 8** — polish, undo/redo UI, installers.
