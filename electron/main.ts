@@ -7,6 +7,9 @@ import { app, BrowserWindow, Menu, nativeImage, shell, type MenuItemConstructorO
 import { existsSync } from "node:fs";
 import path from "node:path";
 
+import type { DocumentState, MenuCommand } from "../src/types/bridge.js";
+import { promptDiscard, registerFileHandlers } from "./fileHandlers.js";
+
 const isMac = process.platform === "darwin";
 const isDev = !app.isPackaged;
 
@@ -14,6 +17,33 @@ const isDev = !app.isPackaged;
 const devServerUrl = process.env["VITE_DEV_SERVER_URL"];
 
 let mainWindow: BrowserWindow | null = null;
+
+/**
+ * Windows permitted to close despite unsaved work — either because the user
+ * chose to discard, or because a save prompted by closing has finished.
+ */
+const closable = new WeakSet<BrowserWindow>();
+
+/** Latest document state reported by each window's renderer. */
+const documentStates = new WeakMap<BrowserWindow, DocumentState>();
+
+function send(command: MenuCommand): void {
+  BrowserWindow.getFocusedWindow()?.webContents.send("menu:command", command);
+}
+
+function applyDocumentState(window: BrowserWindow, state: DocumentState): void {
+  documentStates.set(window, state);
+
+  const shown = state.filePath === null ? state.name : path.basename(state.filePath);
+  window.setTitle(`${shown}${state.dirty ? " — Edited" : ""}`);
+
+  if (isMac) {
+    // The proxy icon and the dot in the close button are how macOS shows an
+    // edited document; Windows conveys it through the title alone.
+    window.setRepresentedFilename(state.filePath ?? "");
+    window.setDocumentEdited(state.dirty);
+  }
+}
 
 /**
  * Packaged builds take their icon from the bundle, so this only matters in
@@ -69,6 +99,32 @@ function createWindow(): BrowserWindow {
     event.preventDefault();
   });
 
+  // Never let unsaved work disappear because a window was closed (spec
+  // section 8). The prompt is native, and the renderer does the saving.
+  window.on("close", (event) => {
+    if (closable.has(window)) return;
+    if (documentStates.get(window)?.dirty !== true) return;
+
+    event.preventDefault();
+    void (async () => {
+      const state = documentStates.get(window);
+      const name = state?.filePath === null || state?.filePath === undefined
+        ? (state?.name ?? "this document")
+        : path.basename(state.filePath);
+
+      const choice = await promptDiscard(window, name);
+      if (choice === "cancel") return;
+      if (choice === "discard") {
+        closable.add(window);
+        window.close();
+        return;
+      }
+      // "Save": the renderer saves, then calls back through
+      // `document:allow-close`, which closes the window for real.
+      window.webContents.send("menu:command", "save-and-close");
+    })();
+  });
+
   window.on("closed", () => {
     mainWindow = null;
   });
@@ -86,7 +142,16 @@ function buildMenu(): void {
     {
       label: "&File",
       submenu: [
-        // File operations arrive in Step 6, alongside the preload bridge.
+        { label: "New", accelerator: "CmdOrCtrl+N", click: () => send("new") },
+        { label: "Open…", accelerator: "CmdOrCtrl+O", click: () => send("open") },
+        { type: "separator" },
+        { label: "Save", accelerator: "CmdOrCtrl+S", click: () => send("save") },
+        {
+          label: "Save As…",
+          accelerator: "CmdOrCtrl+Shift+S",
+          click: () => send("save-as"),
+        },
+        { type: "separator" },
         isMac ? { role: "close" } : { role: "quit" },
       ],
     },
@@ -119,6 +184,14 @@ if (!app.requestSingleInstanceLock()) {
     if (!mainWindow) return;
     if (mainWindow.isMinimized()) mainWindow.restore();
     mainWindow.focus();
+  });
+
+  registerFileHandlers({
+    onDocumentState: applyDocumentState,
+    onAllowClose: (window) => {
+      closable.add(window);
+      window.close();
+    },
   });
 
   void app.whenReady().then(() => {

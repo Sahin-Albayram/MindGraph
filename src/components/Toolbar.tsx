@@ -10,6 +10,7 @@ import {
 } from "../store/selectors.js";
 import { createCompoundNode, createIdeaNode } from "../utils/factories.js";
 import { createSampleGraph } from "../utils/sampleGraph.js";
+import { documentLabel } from "../store/documentActions.js";
 
 import "./toolbar.css";
 
@@ -18,6 +19,8 @@ export function Toolbar() {
 
   const graph = useGraphStore(selectCurrentGraph);
   const isDirty = useGraphStore(selectIsDirty);
+  // Once saved, the file's name is what the user recognises the document by.
+  const filePath = useGraphStore((state) => state.filePath);
   const canUndo = useGraphStore(selectCanUndo);
   const canRedo = useGraphStore(selectCanRedo);
   const addNode = useGraphStore((state) => state.addNode);
@@ -41,7 +44,7 @@ export function Toolbar() {
   return (
     <header className="toolbar">
       <div className="toolbar-title">
-        <span className="toolbar-name">{graph.name}</span>
+        <span className="toolbar-name">{filePath === null ? graph.name : documentLabel()}</span>
         {isDirty && <span className="toolbar-dirty" title="Unsaved changes" />}
       </div>
 

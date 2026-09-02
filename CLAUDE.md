@@ -24,6 +24,17 @@ npm run typecheck # tsc --noEmit
   version parity across the two machines matters — mismatches show up as
   lockfile churn and native-binary errors, not as clear messages.
 
+## Driving the app for verification
+
+`npm run dev` launches Electron without a debugging port. To inspect the real
+app over CDP, temporarily add one to the `onstart` args in `vite.config.mts`
+(`startup([".", "--remote-debugging-port=9224"])`) and revert afterwards.
+
+`main.ts` takes a single-instance lock, so a second Electron launched by hand
+quits immediately and its debugging port never opens. If a probe cannot
+connect, kill every instance first:
+`pkill -9 -f "Repos/MindGraph/node_modules/electron"`.
+
 ## Development aids
 
 - `window.__graphStore` exposes the store in the devtools console in dev builds
@@ -150,6 +161,24 @@ symptoms that look unrelated to the cause:
   toolbar. Do not reintroduce a toolbar Fit button without verifying it moves
   the viewport — it fails silently.
 
+## Files and IPC
+
+- **Main moves bytes; the renderer decides what they mean.** `fileHandlers.ts`
+  never parses document contents, so `fileFormat.ts` stays the single place
+  that decides whether a document is well-formed. Do not add JSON parsing to
+  the main process.
+- **Saves are atomic**: written to a temp file beside the target, then renamed
+  over it. An interrupted save leaves the previous version intact rather than a
+  truncated one. Keep it that way.
+- **Every path that discards a document is guarded** — New, Open, and closing
+  the window all route through the same native prompt (`promptDiscard`), and a
+  *failed* save is never treated as permission to discard.
+- The renderer reports `{name, filePath, dirty}` to main on every change; main
+  owns the window title, the macOS proxy icon and the edited dot.
+- The close guard lives in main because main owns the window: on a dirty close
+  it cancels the close, prompts, and (for "Save") asks the renderer to save and
+  call `allowClose()`.
+
 ## Packaging
 
 `npm run package:mac` emits both DMGs (arm64 + x64) into `release/`, which is
@@ -190,5 +219,7 @@ Tracked in spec section 9.
 - **Step 4** — node detail panel: title + markdown description. *Done.*
 - **Step 5** — edges: draw by dragging between handles, label them, mark them
   tentative. *Done.*
-- **Step 6** — save/open. *Next.* First build whose work survives quitting.
-- **Step 7** — compound-node drill-down. **Step 8** — polish, undo/redo UI, installers.
+- **Step 6** — save/open `.mindgraph` files, with unsaved-work guards. *Done.*
+  Work now survives quitting.
+- **Step 7** — compound-node drill-down. *Next.*
+- **Step 8** — polish, minimap, installers.
