@@ -30,6 +30,7 @@ import {
   type IsValidConnection,
   type NodeChange,
   type NodeTypes,
+  type OnNodeDrag,
 } from "@xyflow/react";
 import type React from "react";
 import { useCallback, useEffect, useState } from "react";
@@ -39,7 +40,15 @@ import { useGraphStore } from "../store/graphStore.js";
 import { selectCurrentGraph } from "../store/selectors.js";
 import { useViewStore } from "../store/viewStore.js";
 import { CompoundNode } from "./CompoundNode.js";
-import { flatten, parseRef, refKey, GROUP_HEADER, GROUP_PADDING } from "./flatten.js";
+import {
+  absolutePositions,
+  containerBoxes,
+  flatten,
+  parseRef,
+  refKey,
+  GROUP_HEADER,
+  GROUP_PADDING,
+} from "./flatten.js";
 import type { MindGraphFlowNode } from "./flowTypes.js";
 import { IdeaNode } from "./IdeaNode.js";
 
@@ -71,6 +80,7 @@ export function Canvas({ onSelectionChange }: CanvasProps) {
   const moveNode = useGraphStore((state) => state.moveNode);
   const deleteElements = useGraphStore((state) => state.deleteElements);
   const connect = useGraphStore((state) => state.connect);
+  const moveNodeToGraph = useGraphStore((state) => state.moveNodeToGraph);
   const setViewport = useGraphStore((state) => state.setViewport);
   const endGesture = useGraphStore((state) => state.endGesture);
 
@@ -199,6 +209,66 @@ export function Canvas({ onSelectionChange }: CanvasProps) {
     [deleteElements],
   );
 
+  /**
+   * Where a node ends up when the drag stops: whichever expanded container its
+   * centre lies in, innermost first, or the graph on screen if none.
+   *
+   * A group cannot be dropped into itself or into anything it contains, and a
+   * drop that does not change graph is left to the ordinary move path.
+   */
+  const onNodeDragStop = useCallback<OnNodeDrag<MindGraphFlowNode>>(
+    (_event, node) => {
+      endGesture();
+
+      const ref = parseRef(node.id);
+      const positions = absolutePositions(graph, basePath, expanded);
+      const origin = positions.get(node.id);
+      if (!origin) return;
+
+      // The node's own box, measured where React Flow last drew it.
+      const width = node.measured?.width ?? 200;
+      const height = node.measured?.height ?? 60;
+      const centre = { x: origin.x + width / 2, y: origin.y + height / 2 };
+
+      const target = containerBoxes(graph, basePath, expanded)
+        .filter((box) => {
+          // Never into itself, and never into its own descendants.
+          if (box.path.slice(0, ref.path.length + 1).join("\u0000") ===
+              [...ref.path, ref.id].join("\u0000")) {
+            return false;
+          }
+          return (
+            centre.x >= box.x &&
+            centre.x <= box.x + box.width &&
+            centre.y >= box.y &&
+            centre.y <= box.y + box.height
+          );
+        })
+        // Innermost container wins.
+        .at(-1);
+
+      const toPath = target ? target.path : basePath;
+      if (toPath.join("\u0000") === ref.path.join("\u0000")) return;
+
+      // Absolute position translated into the destination graph's coordinates.
+      const destinationOrigin = target
+        ? { x: target.x + GROUP_PADDING, y: target.y + GROUP_HEADER }
+        : { x: 0, y: 0 };
+
+      // A drop is decided by the node's centre, so its edge can still fall
+      // outside the container. Keep it wholly inside rather than straddling
+      // the border it was just dropped into.
+      const local = {
+        x: Math.round(origin.x - destinationOrigin.x),
+        y: Math.round(origin.y - destinationOrigin.y),
+      };
+      const position = target ? { x: Math.max(0, local.x), y: Math.max(0, local.y) } : local;
+
+      moveNodeToGraph({ nodeId: ref.id, from: ref.path, to: toPath, position });
+    },
+    [endGesture, graph, basePath, expanded, moveNodeToGraph],
+  );
+
   /** Double-clicking a group opens or closes it in place. */
   const onNodeDoubleClick = useCallback(
     (_event: React.MouseEvent, node: MindGraphFlowNode) => {
@@ -222,7 +292,7 @@ export function Canvas({ onSelectionChange }: CanvasProps) {
         isValidConnection={isValidConnection}
         onDelete={onDelete}
         onNodeDoubleClick={onNodeDoubleClick}
-        onNodeDragStop={endGesture}
+        onNodeDragStop={onNodeDragStop}
         onMoveEnd={(_event, viewport) => setViewport(viewport)}
         defaultViewport={graph.viewport}
         deleteKeyCode={["Backspace", "Delete"]}

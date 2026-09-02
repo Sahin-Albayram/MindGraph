@@ -111,6 +111,20 @@ export interface GraphActions {
   ) => void;
   removeNode: (nodeId: string, path?: GraphPath) => void;
   convertToCompound: (nodeId: string, path?: GraphPath) => void;
+  /**
+   * Moves a node into a different graph — dropping it into an expanded group,
+   * or dragging it out of one.
+   *
+   * Edges tying it to nodes left behind cannot survive the move: the format
+   * addresses an edge's endpoints by id within one graph, so an edge spanning
+   * two graphs is not representable. They go with it, in the same undo entry.
+   */
+  moveNodeToGraph: (move: {
+    nodeId: string;
+    from: GraphPath;
+    to: GraphPath;
+    position: Position;
+  }) => void;
 
   // Edge edits.
   connect: (
@@ -364,6 +378,48 @@ export const useGraphStore = create<GraphStore>()((set, get) => {
           node.data.subgraph = createGraph({ name: node.data.title });
         },
         path === undefined ? undefined : { path },
+      );
+    },
+
+    moveNodeToGraph: ({ nodeId, from, to, position }) => {
+      const samePath = from.join("\u0000") === to.join("\u0000");
+      if (samePath) {
+        get().moveNode(nodeId, position, { path: from });
+        return;
+      }
+
+      // A group cannot be moved inside itself or anything it contains — that
+      // would detach the subtree from the document entirely.
+      const insideItself = to.length > from.length && to[from.length] === nodeId;
+      if (insideItself) return;
+
+      editRoot(
+        (root) => {
+          const source = resolveGraph(root, from);
+          const destination = resolveGraph(root, to);
+          if (!source || !destination) return;
+
+          const index = source.nodes.findIndex((node) => node.id === nodeId);
+          if (index === -1) return;
+
+          const [moved] = source.nodes.splice(index, 1);
+          if (!moved) return;
+
+          source.edges = source.edges.filter(
+            (edge) => edge.source !== nodeId && edge.target !== nodeId,
+          );
+
+          // An id only has to be unique within its graph, but a collision would
+          // make the destination ambiguous, so refuse rather than corrupt it.
+          if (destination.nodes.some((node) => node.id === nodeId)) {
+            source.nodes.splice(index, 0, moved);
+            return;
+          }
+
+          moved.position = { ...position };
+          destination.nodes.push(moved);
+        },
+        { stampPath: to },
       );
     },
 

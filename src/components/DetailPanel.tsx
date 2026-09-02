@@ -15,6 +15,7 @@ import { useViewStore } from "../store/viewStore.js";
 import type { Edge, Graph, Node } from "../types/graph.js";
 import type { Selection } from "./Canvas.js";
 import { parseRef, refKey } from "./flatten.js";
+import { createIdeaNode } from "../utils/factories.js";
 import { resolveGraph } from "../utils/graphPath.js";
 
 import "./detailPanel.css";
@@ -124,6 +125,7 @@ function EdgeEditor({ edge, path }: { edge: Edge; path: readonly string[] }) {
 function NestingControls({ node, nodeRef }: { node: Node; nodeRef: ElementRef }) {
   const convertToCompound = useGraphStore((state) => state.convertToCompound);
   const enterSubgraph = useGraphStore((state) => state.enterSubgraph);
+  const addNode = useGraphStore((state) => state.addNode);
   const expanded = useViewStore((state) => state.expanded);
   const setExpanded = useViewStore((state) => state.setExpanded);
 
@@ -149,10 +151,27 @@ function NestingControls({ node, nodeRef }: { node: Node; nodeRef: ElementRef })
   }
 
   const count = node.data.subgraph?.nodes.length ?? 0;
+  const insidePath = [...nodeRef.path, nodeRef.id];
+
+  /** Places a new idea inside the group, opening it so the result is visible. */
+  const addInside = () => {
+    const existing = node.data.subgraph?.nodes.length ?? 0;
+    // Stagger additions so a run of them does not stack into one pile.
+    const position = { x: 24 + (existing % 3) * 30, y: 24 + existing * 34 };
+    addNode(createIdeaNode({ position }), insidePath);
+    setExpanded(key, true);
+  };
 
   return (
     <div className="panel-nesting">
-      <button type="button" className="panel-action" onClick={() => setExpanded(key, !isOpen)}>
+      <button type="button" className="panel-action" onClick={addInside}>
+        Add a node inside
+      </button>
+      <button
+        type="button"
+        className="panel-action panel-action-quiet"
+        onClick={() => setExpanded(key, !isOpen)}
+      >
         {isOpen ? "Close group" : "Open group here"}
       </button>
       {/* Focus mode: give the group the whole canvas, with breadcrumbs back. */}
@@ -171,8 +190,8 @@ function NestingControls({ node, nodeRef }: { node: Node; nodeRef: ElementRef })
       </button>
       <p className="panel-hint">
         {count === 0
-          ? "This group is empty. Open it to start building inside."
-          : `Contains ${count} node${count === 1 ? "" : "s"}. Double-clicking the group opens it too.`}
+          ? "This group is empty. Add a node inside, or drag an existing one in."
+          : `Contains ${count} node${count === 1 ? "" : "s"}. Double-click the group to open it, and drag nodes in or out to move them between graphs.`}
       </p>
     </div>
   );

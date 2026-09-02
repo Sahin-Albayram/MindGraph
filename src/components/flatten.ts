@@ -118,7 +118,9 @@ export function flatten(
           // Render-time only: the document knows nothing about expansion.
           expanded: isOpen,
         },
-        ...(parentKey === null ? {} : { parentId: parentKey, extent: "parent" as const }),
+        // No `extent: "parent"`: a child has to be draggable out of its
+        // container, because dropping it elsewhere is how it changes graph.
+        ...(parentKey === null ? {} : { parentId: parentKey }),
         ...(isOpen
           ? {
               style: sizeFor(node.data.subgraph!),
@@ -138,4 +140,79 @@ export function flatten(
 
   visit(graph, basePath, null);
   return { nodes, edges };
+}
+
+/** A container's box in absolute canvas coordinates. */
+export interface ContainerBox {
+  /** Composite ref of the group node. */
+  key: string;
+  /** Path *inside* the group — where a node dropped here would live. */
+  path: GraphPath;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  /** How deeply nested; the innermost match wins a drop. */
+  depth: number;
+}
+
+/**
+ * Absolute boxes of every expanded container, innermost last.
+ *
+ * Computed from the document rather than asked of React Flow: the same
+ * geometry the flattener writes out is the geometry a drop has to be tested
+ * against, and keeping both in one file stops them drifting apart.
+ */
+export function containerBoxes(
+  graph: Graph,
+  basePath: GraphPath,
+  expanded: ReadonlySet<string>,
+): ContainerBox[] {
+  const boxes: ContainerBox[] = [];
+
+  const visit = (current: Graph, path: GraphPath, originX: number, originY: number, depth: number): void => {
+    for (const node of current.nodes) {
+      const key = refKey(path, node.id);
+      const subgraph = node.data.subgraph;
+      if (node.type !== "compound" || !subgraph || !expanded.has(key)) continue;
+
+      const { width, height } = sizeFor(subgraph);
+      const x = originX + node.position.x;
+      const y = originY + node.position.y;
+      boxes.push({ key, path: [...path, node.id], x, y, width, height, depth });
+
+      // Children are drawn inset by the container's padding and header, so
+      // their own absolute origin starts there.
+      visit(subgraph, [...path, node.id], x + GROUP_PADDING, y + GROUP_HEADER, depth + 1);
+    }
+  };
+
+  visit(graph, basePath, 0, 0, 0);
+  return boxes.sort((a, b) => a.depth - b.depth);
+}
+
+/** Absolute position of every node on the canvas, keyed by composite ref. */
+export function absolutePositions(
+  graph: Graph,
+  basePath: GraphPath,
+  expanded: ReadonlySet<string>,
+): Map<string, { x: number; y: number }> {
+  const positions = new Map<string, { x: number; y: number }>();
+
+  const visit = (current: Graph, path: GraphPath, originX: number, originY: number): void => {
+    for (const node of current.nodes) {
+      const key = refKey(path, node.id);
+      const x = originX + node.position.x;
+      const y = originY + node.position.y;
+      positions.set(key, { x, y });
+
+      const subgraph = node.data.subgraph;
+      if (node.type === "compound" && subgraph && expanded.has(key)) {
+        visit(subgraph, [...path, node.id], x + GROUP_PADDING, y + GROUP_HEADER);
+      }
+    }
+  };
+
+  visit(graph, basePath, 0, 0);
+  return positions;
 }

@@ -614,6 +614,156 @@ describe("editing a graph other than the one on screen", () => {
   });
 });
 
+describe("moving a node between graphs", () => {
+  function setup() {
+    const inner = createGraph({ name: "Inside" });
+    const child = createIdeaNode({ title: "Child", position: { x: 10, y: 10 } });
+    inner.nodes = [child];
+    const group = createCompoundNode({ title: "Group", position: { x: 300, y: 0 }, subgraph: inner });
+    const outside = createIdeaNode({ title: "Outside", position: { x: 0, y: 0 } });
+
+    state().addNode(outside);
+    state().addNode(group);
+    return { groupId: group.id, childId: child.id, outsideId: outside.id };
+  }
+
+  it("drops a top-level node into a group", () => {
+    const { groupId, outsideId } = setup();
+
+    state().moveNodeToGraph({
+      nodeId: outsideId,
+      from: [],
+      to: [groupId],
+      position: { x: 40, y: 60 },
+    });
+
+    expect(selectCurrentGraph(state()).nodes.map((n) => n.data.title)).toEqual(["Group"]);
+    const inside = state().root.nodes[0]!.data.subgraph!;
+    expect(inside.nodes.map((n) => n.data.title)).toEqual(["Child", "Outside"]);
+    expect(inside.nodes[1]!.position).toEqual({ x: 40, y: 60 });
+  });
+
+  it("drags a child back out to the graph above", () => {
+    const { groupId, childId } = setup();
+
+    state().moveNodeToGraph({
+      nodeId: childId,
+      from: [groupId],
+      to: [],
+      position: { x: 500, y: 200 },
+    });
+
+    expect(selectCurrentGraph(state()).nodes.map((n) => n.data.title)).toEqual([
+      "Outside",
+      "Group",
+      "Child",
+    ]);
+    expect(state().root.nodes[1]!.data.subgraph!.nodes).toEqual([]);
+  });
+
+  it("takes edges that would dangle with it, in the same undo step", () => {
+    const { groupId, outsideId } = setup();
+    const other = addIdea("Other");
+    state().connect(outsideId, other);
+    expect(selectCurrentGraph(state()).edges).toHaveLength(1);
+
+    const historyBefore = state().past.length;
+    state().moveNodeToGraph({
+      nodeId: outsideId,
+      from: [],
+      to: [groupId],
+      position: { x: 0, y: 0 },
+    });
+
+    // The edge cannot survive: the format cannot address endpoints in two
+    // different graphs.
+    expect(selectCurrentGraph(state()).edges).toEqual([]);
+    expect(state().past.length).toBe(historyBefore + 1);
+
+    const parsed = deserialize(serialize(state().root));
+    expect(parsed.ok).toBe(true);
+
+    state().undo();
+    expect(selectCurrentGraph(state()).edges).toHaveLength(1);
+  });
+
+  it("refuses to move a group inside itself", () => {
+    const { groupId } = setup();
+    const rootBefore = state().root;
+
+    state().moveNodeToGraph({
+      nodeId: groupId,
+      from: [],
+      to: [groupId],
+      position: { x: 0, y: 0 },
+    });
+
+    // Allowing this would detach the subtree from the document entirely.
+    expect(state().root).toBe(rootBefore);
+  });
+
+  it("refuses to move a group inside one of its own descendants", () => {
+    const { groupId } = setup();
+    const nested = createCompoundNode({ title: "Nested", position: { x: 0, y: 0 } });
+    state().addNode(nested, [groupId]);
+    const rootBefore = state().root;
+
+    state().moveNodeToGraph({
+      nodeId: groupId,
+      from: [],
+      to: [groupId, nested.id],
+      position: { x: 0, y: 0 },
+    });
+
+    expect(state().root).toBe(rootBefore);
+  });
+
+  it("treats a move within the same graph as an ordinary move", () => {
+    const { outsideId } = setup();
+    state().moveNodeToGraph({
+      nodeId: outsideId,
+      from: [],
+      to: [],
+      position: { x: 77, y: 88 },
+    });
+    expect(selectCurrentGraph(state()).nodes[0]!.position).toEqual({ x: 77, y: 88 });
+  });
+
+  it("ignores a move of a node that is not there", () => {
+    const { groupId } = setup();
+    const rootBefore = state().root;
+    state().moveNodeToGraph({
+      nodeId: "ghost",
+      from: [],
+      to: [groupId],
+      position: { x: 0, y: 0 },
+    });
+    expect(state().root).toBe(rootBefore);
+  });
+
+  it("keeps a moved group's own contents intact", () => {
+    const { groupId, outsideId } = setup();
+    // Turn the outside node into a group with something in it, then move it.
+    state().convertToCompound(outsideId);
+    state().addNode(createIdeaNode({ title: "Carried" }), [outsideId]);
+
+    state().moveNodeToGraph({
+      nodeId: outsideId,
+      from: [],
+      to: [groupId],
+      position: { x: 5, y: 5 },
+    });
+
+    const moved = state().root.nodes[0]!.data.subgraph!.nodes.find(
+      (n) => n.data.title === "Outside",
+    )!;
+    expect(moved.data.subgraph!.nodes.map((n) => n.data.title)).toEqual(["Carried"]);
+
+    const parsed = deserialize(serialize(state().root));
+    expect(parsed.ok).toBe(true);
+  });
+});
+
 describe("undo and redo", () => {
   it("reverses and replays an edit", () => {
     addIdea("First");

@@ -156,6 +156,21 @@ array. It owns two things:
   plus an assumed child footprint, because React Flow measures nodes only after
   they render.
 
+**Nodes move between graphs by being dragged.** A drop is decided by the
+node's centre against the container boxes from `containerBoxes()`, innermost
+first; dropping outside every container moves a node up to the graph on screen.
+This is why children deliberately have no `extent: "parent"` — being penned in
+would make the gesture impossible. `moveNodeToGraph` refuses to put a group
+inside itself or its own descendants, which would detach the subtree from the
+document.
+
+Edges tying a moved node to nodes left behind cannot survive, for the same
+reason cross-level edges cannot exist; they are dropped in the same undo entry.
+
+A group can also be filled without dragging — the panel's "Add a node inside" —
+because the toolbar's Add buttons target the graph on screen, which while a
+group is merely expanded is still its *parent*.
+
 **Edges may not cross a group boundary.** The file format addresses an edge's
 endpoints by plain id within one graph, so an edge between levels is not
 representable; `isValidConnection` refuses the drop while the user is dragging.

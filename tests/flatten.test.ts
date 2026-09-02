@@ -65,9 +65,9 @@ describe("flatten", () => {
       refKey([groupId], innerIds[0]),
       refKey([groupId], innerIds[1]),
     ]);
-    // `extent: "parent"` is what keeps a child from being dragged out of a
-    // container the model has no way to represent it leaving.
-    expect(children.every((node) => node.extent === "parent")).toBe(true);
+    // Deliberately *not* `extent: "parent"`: dragging a child out of its
+    // container is how it moves to another graph, so it must not be penned in.
+    expect(children.every((node) => node.extent === undefined)).toBe(true);
   });
 
   it("offsets children clear of the container's header", () => {
