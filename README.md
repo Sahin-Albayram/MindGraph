@@ -38,20 +38,12 @@ The first `npm install` downloads the Electron binary (~100 MB), so it takes a
 while. `npm test` runs the unit suite without launching the app;
 `npm run package` builds installers for the current platform.
 
-## Authorship
+## About this project & my role (AI Written)
 
-**Sahin Albayram** — author and maintainer. The project is his: he wrote the
-specification that defines it, owns the design decisions behind it, and directs
-and reviews the work as it is built.
+MindGraph is a personal desktop app I’ve been building. My goal was simple: create a truly local, document-based tool with zero accounts, zero servers, and zero network calls.
 
-The implementation is written with AI assistance, using Claude Code, working
-from that specification and under his review. The spec anticipated this from the
-outset — its choice of a single-language stack was made partly because "most of
-the build is going to be AI-assisted" (§2).
 
-Several of the design calls recorded in [CLAUDE.md](CLAUDE.md) came from
-reviewing the running app rather than the code, and changed its direction —
-in-place group expansion replaced a drill-down-only design that way.
+To actually build the app, I use Claude Code as a build-time pair programmer. I focus on the architecture, testing, and design decisions, while Claude helps me iterate on the code itself. However, that AI assistance is strictly for the development phase—the app you actually install and run is entirely offline and model-free.
 
 ## Documentation
 
