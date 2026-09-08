@@ -1,0 +1,142 @@
+.node {
+  min-width: 168px;
+  max-width: 260px;
+  padding: 10px 12px;
+  border: 1px solid var(--node-border);
+  border-radius: 10px;
+  background: var(--node-bg);
+  color: var(--text);
+  font-family: var(--font-ui);
+  font-size: 13px;
+  line-height: 1.35;
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.35);
+}
+
+.node.selected {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 45%, transparent);
+}
+
+.node-title {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.node-description {
+  margin-top: 4px;
+  color: var(--text-dim);
+  font-size: 12px;
+  /* Detail belongs in the panel (Step 4); the card shows only a hint of it. */
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.node-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 6px;
+}
+
+.node-tag {
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--surface-raised);
+  color: var(--text-dim);
+  font-size: 10.5px;
+}
+
+.node-swatch {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  margin-right: 6px;
+  border-radius: 50%;
+  vertical-align: 1px;
+}
+
+/* A compound node reads as a container: heavier border and a stack edge behind
+   the card, so it is distinguishable from an idea node at a glance. */
+.node.compound {
+  border-color: var(--compound-border);
+  border-width: 1.5px;
+  background: var(--compound-bg);
+  position: relative;
+}
+
+.node.compound::before {
+  content: "";
+  position: absolute;
+  inset: 6px -5px -5px 6px;
+  z-index: -1;
+  border: 1px solid var(--compound-border);
+  border-radius: 10px;
+  background: var(--compound-bg);
+  opacity: 0.55;
+}
+
+.node-count {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 6px;
+  color: var(--compound-text);
+  font-size: 11.5px;
+  font-weight: 500;
+}
+
+.node-handle {
+  width: 7px;
+  height: 7px;
+  border: 1px solid var(--bg);
+  background: var(--text-dim);
+}
+
+/* An expanded group is a container: React Flow draws its children inside this
+   box, so the card gives up its own body and keeps only a titled header. */
+.node.compound.expanded {
+  width: 100%;
+  height: 100%;
+  max-width: none;
+  background: color-mix(in srgb, var(--compound-bg) 55%, transparent);
+  border-style: dashed;
+  box-shadow: none;
+}
+
+.node.compound.expanded::before {
+  content: none;
+}
+
+.node.compound.expanded .node-count {
+  position: absolute;
+  top: 11px;
+  right: 12px;
+  margin-top: 0;
+  opacity: 0.75;
+  white-space: nowrap;
+}
+
+/* The count sits in the top-right corner, so the title must stop short of it
+   rather than running underneath. */
+.node.compound.expanded .node-title {
+  padding-right: 92px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* The container a dragged node is about to be dropped into. Says where the
+   node will land before the user commits to it. */
+.node.compound.drop-target {
+  border-color: var(--accent);
+  border-style: solid;
+  background: color-mix(in srgb, var(--accent) 12%, var(--compound-bg));
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 40%, transparent);
+}
+
+.node.compound.drop-target .node-count {
+  color: var(--accent);
+  opacity: 1;
+}

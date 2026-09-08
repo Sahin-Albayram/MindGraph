@@ -1,0 +1,34 @@
+<svg width="512" height="512" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#17213E"/>
+      <stop offset="100%" stop-color="#3E2E73"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="50%" cy="42%" r="60%">
+      <stop offset="0%" stop-color="#5B4A9E" stop-opacity="0.55"/>
+      <stop offset="100%" stop-color="#5B4A9E" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+
+  <!-- background -->
+  <rect x="0" y="0" width="512" height="512" rx="112" fill="url(#bg)"/>
+  <circle cx="256" cy="216" r="180" fill="url(#glow)"/>
+
+  <!-- outer link stubs hinting at the wider graph -->
+  <line x1="256" y1="256" x2="130" y2="352" stroke="#8B7FC9" stroke-opacity="0.55" stroke-width="7" stroke-linecap="round"/>
+  <line x1="256" y1="256" x2="382" y2="352" stroke="#8B7FC9" stroke-opacity="0.55" stroke-width="7" stroke-linecap="round"/>
+  <circle cx="130" cy="352" r="14" fill="#8B7FC9" fill-opacity="0.55"/>
+  <circle cx="382" cy="352" r="14" fill="#8B7FC9" fill-opacity="0.55"/>
+
+  <!-- compound node: outer ring -->
+  <circle cx="256" cy="256" r="128" fill="none" stroke="#F5B740" stroke-width="14"/>
+
+  <!-- nested sub-graph inside the ring -->
+  <line x1="256" y1="212" x2="212" y2="288" stroke="#E9E4FF" stroke-opacity="0.8" stroke-width="8" stroke-linecap="round"/>
+  <line x1="256" y1="212" x2="300" y2="288" stroke="#E9E4FF" stroke-opacity="0.8" stroke-width="8" stroke-linecap="round"/>
+  <line x1="212" y1="288" x2="300" y2="288" stroke="#E9E4FF" stroke-opacity="0.8" stroke-width="8" stroke-linecap="round"/>
+
+  <circle cx="256" cy="212" r="26" fill="#F5B740"/>
+  <circle cx="212" cy="288" r="22" fill="#FF7B5C"/>
+  <circle cx="300" cy="288" r="22" fill="#57E3C0"/>
+</svg>
